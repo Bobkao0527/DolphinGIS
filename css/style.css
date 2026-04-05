@@ -1,0 +1,133 @@
+:root {
+    --bg-dark: #0b0b0b;
+    --ui-panel: rgba(20, 20, 20, 0.95);
+    --accent: #55ff55;
+    --text-color: #fff;
+    --border: rgba(255, 255, 255, 0.1);
+    --hover-bg: rgba(85, 255, 85, 0.2);
+}
+
+body, html {
+    margin: 0; padding: 0; height: 100%; width: 100%;
+    background-color: var(--bg-dark);
+    overflow: hidden;
+    font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif;
+}
+
+#map { height: 100vh; width: 100vw; background: #000; cursor: crosshair; }
+
+/* --- UI 面板 --- */
+.control-panel {
+    position: absolute; top: 20px; left: 20px;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 280px;
+}
+
+.info-box {
+    background: var(--ui-panel);
+    color: white;
+    padding: 12px 16px;
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+    border: 1px solid var(--border);
+    backdrop-filter: blur(4px);
+}
+
+.brand-title { margin: 0; font-size: 18px; color: var(--accent); letter-spacing: 1px; }
+.sub-title { font-size: 11px; opacity: 0.6; margin-top: 4px; }
+
+/* --- 搜尋系統 --- */
+.search-container {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+.search-box {
+    display: flex;
+    gap: 5px;
+    background: var(--ui-panel);
+    padding: 5px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+}
+
+.search-input {
+    background: transparent;
+    border: none;
+    color: var(--accent);
+    padding: 8px;
+    flex-grow: 1;
+    font-size: 14px;
+    outline: none;
+}
+.search-input::placeholder { color: rgba(255,255,255,0.3); }
+
+.search-btn {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    border-radius: 4px;
+    padding: 0 15px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.search-btn:hover { opacity: 0.9; transform: scale(1.02); }
+
+.results-list {
+    position: absolute;
+    top: 52px; left: 0; right: 0;
+    background: var(--ui-panel);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    max-height: 400px;
+    overflow-y: auto;
+    display: none;
+    box-shadow: 0 8px 25px rgba(0,0,0,0.6);
+}
+
+.result-item {
+    padding: 12px 15px;
+    color: #eee;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.2s;
+}
+.result-item:hover { background: var(--hover-bg); color: var(--accent); }
+.result-item .item-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+.result-item .item-id { font-size: 10px; color: var(--accent); opacity: 0.8; font-family: monospace; }
+.result-item .item-addr { display: block; font-size: 12px; opacity: 0.5; }
+
+/* --- 其他元件 --- */
+.coord-display {
+    position: absolute; bottom: 30px; left: 30px;
+    background: var(--ui-panel);
+    color: var(--accent);
+    padding: 10px 15px;
+    border-radius: 6px;
+    font-family: 'Consolas', monospace;
+    font-size: 16px;
+    z-index: 1000;
+    border-left: 4px solid var(--accent);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+    pointer-events: none;
+}
+
+#loading-indicator { font-size: 11px; color: var(--accent); margin-top: 5px; display: none; }
+
+.leaflet-tile {
+    image-rendering: pixelated !important;
+}
+
+.leaflet-popup-content-wrapper {
+    background: var(--ui-panel);
+    color: #fff;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+}
+.leaflet-popup-tip { background: var(--ui-panel); }

@@ -4,7 +4,7 @@
  */
 
 // 你的 Firebase Realtime Database 網址 (新加坡節點)
-const FIREBASE_DB_URL = "https://dgis-gps-default-rtdb.asia-southeast1.firebasedatabase.app/";
+const FIREBASE_DB_URL = "https://dgis-gps-default-rtdb.asia-southeast1.firebasedatabase.app/players.json";
 
 const tracker = {
     // 儲存所有玩家的 Leaflet Marker 物件
@@ -21,28 +21,40 @@ const tracker = {
     startSync: async function() {
         const fetchUpdates = async () => {
             try {
-                // 抓取 players 節點下的所有最新資料
-                const response = await fetch(`${FIREBASE_DB_URL}/players.json`);
+                const response = await fetch(FIREBASE_DB_URL);
                 const data = await response.json();
                 
                 if (data) {
+                    const activePlayersThisTick = new Set();
+
                     // Firebase 回傳的是一個以玩家名稱為 Key 的物件
                     Object.keys(data).forEach(playerName => {
                         const p = data[playerName];
-                        // 檢查資料是否過期 (超過 10 分鐘未更新則視為離線，可選)
-                        const isOnline = (Date.now() - p.ts) < 600000;
                         
-                        if (isOnline) {
-                            this.updatePlayerOnMap(p.name, p.x, p.z, p.dim);
-                        } else {
-                            this.removePlayer(p.name);
+                        // 1. 檢查資料是否過期 (超過 30 秒未更新則視為離線)
+                        const isOnline = (Date.now() - p.ts) < 30000;
+                        
+                        // 2. 檢查維度 (只顯示主世界的玩家)
+                        // Mod 傳出的格式通常為 "minecraft:overworld"
+                        const isOverworld = p.dim && p.dim.includes("overworld");
+                        
+                        if (isOnline && isOverworld) {
+                            activePlayersThisTick.add(playerName);
+                            this.updatePlayerOnMap(playerName, p.x, p.z);
+                        }
+                    });
+
+                    // 3. 清理已離線或切換維度的玩家標記
+                    Object.keys(this.playerMarkers).forEach(name => {
+                        if (!activePlayersThisTick.has(name)) {
+                            this.removePlayer(name);
                         }
                     });
                 }
             } catch (error) {
                 console.error("Firebase 同步錯誤:", error);
             }
-            // 每 1.5 秒抓取一次，確保流暢度與頻寬平衡
+            // 每 1.5 秒抓取一次，與 Mod 同步頻率保持一致
             setTimeout(fetchUpdates, 1500);
         };
         
@@ -52,14 +64,15 @@ const tracker = {
     /**
      * 在地圖上更新或建立玩家標記
      */
-    updatePlayerOnMap: function(name, x, z, dim) {
-        const latlng = L.latLng(-z, x); // Minecraft Z 在地圖中需取負值
+    updatePlayerOnMap: function(name, x, z) {
+        // Minecraft Z 在 Leaflet CRS.Simple 中需取負值作為緯度
+        const latlng = L.latLng(-z, x); 
         
         if (this.playerMarkers[name]) {
             // 已存在則移動位置
             this.playerMarkers[name].setLatLng(latlng);
         } else {
-            // 建立新的黃色發光圖標
+            // 建立新的黃色發光圖標 (CSS 樣式需定義在 HTML 中)
             const icon = L.divIcon({
                 className: 'player-icon-container',
                 html: `<div class="player-dot"></div>`,
@@ -88,11 +101,18 @@ const tracker = {
         if (this.playerMarkers[name]) {
             map.removeLayer(this.playerMarkers[name]);
             delete this.playerMarkers[name];
+            console.log(`Player ${name} removed from map.`);
         }
     }
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-    // 延遲一下確保 map-logic.js 已經把 map 物件準備好
-    setTimeout(() => tracker.init(), 500);
+    // 確保地圖物件已經初始化再啟動追蹤
+    setTimeout(() => {
+        if (typeof map !== 'undefined') {
+            tracker.init();
+        } else {
+            console.error("Map object not found. Tracker failed to start.");
+        }
+    }, 1000);
 });

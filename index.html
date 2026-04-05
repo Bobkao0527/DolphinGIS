@@ -4,156 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Minecraft 伺服器地圖 - DolphinGIS</title>
+    <!-- 外部樣式庫 -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <style>
-        :root {
-            --bg-dark: #0b0b0b;
-            --ui-panel: rgba(20, 20, 20, 0.95);
-            --accent: #55ff55;
-            --text-color: #fff;
-            --border: rgba(255, 255, 255, 0.1);
-            --hover-bg: rgba(85, 255, 85, 0.2);
-        }
-
-        body, html {
-            margin: 0; padding: 0; height: 100%; width: 100%;
-            background-color: var(--bg-dark);
-            overflow: hidden;
-            font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif;
-        }
-
-        #map { height: 100vh; width: 100vw; background: #000; cursor: crosshair; }
-
-        /* --- UI 面板 --- */
-        .control-panel {
-            position: absolute; top: 20px; left: 20px;
-            z-index: 1000;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            width: 280px;
-        }
-
-        .info-box {
-            background: var(--ui-panel);
-            color: white;
-            padding: 12px 16px;
-            border-radius: 8px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            border: 1px solid var(--border);
-            backdrop-filter: blur(4px);
-        }
-
-        .search-container {
-            position: relative;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .search-box {
-            display: flex;
-            gap: 5px;
-            background: var(--ui-panel);
-            padding: 5px;
-            border-radius: 8px;
-            border: 1px solid var(--border);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-        }
-
-        .search-input {
-            background: transparent;
-            border: none;
-            color: var(--accent);
-            padding: 8px;
-            flex-grow: 1;
-            font-family: 'Segoe UI', sans-serif;
-            font-size: 14px;
-            outline: none;
-        }
-        .search-input::placeholder { color: rgba(255,255,255,0.3); }
-
-        .search-btn {
-            background: var(--accent);
-            color: #000;
-            border: none;
-            border-radius: 4px;
-            padding: 0 15px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .search-btn:hover { opacity: 0.9; transform: scale(1.02); }
-
-        .results-list {
-            position: absolute;
-            top: 52px;
-            left: 0;
-            right: 0;
-            background: var(--ui-panel);
-            border-radius: 8px;
-            border: 1px solid var(--border);
-            max-height: 400px;
-            overflow-y: auto;
-            display: none;
-            box-shadow: 0 8px 25px rgba(0,0,0,0.6);
-        }
-        .result-item {
-            padding: 12px 15px;
-            color: #eee;
-            cursor: pointer;
-            border-bottom: 1px solid var(--border);
-            transition: background 0.2s;
-        }
-        .result-item:hover {
-            background: var(--hover-bg);
-            color: var(--accent);
-        }
-        .result-item:last-child { border-bottom: none; }
-        
-        .result-item .item-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
-        .result-item .item-id { font-size: 10px; color: var(--accent); opacity: 0.8; font-family: monospace; }
-        .result-item .item-addr { display: block; font-size: 12px; opacity: 0.5; }
-
-        .coord-display {
-            position: absolute; bottom: 30px; left: 30px;
-            background: var(--ui-panel);
-            color: var(--accent);
-            padding: 10px 15px;
-            border-radius: 6px;
-            font-family: 'Consolas', monospace;
-            font-size: 16px;
-            z-index: 1000;
-            border-left: 4px solid var(--accent);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            pointer-events: none;
-        }
-
-        #loading-indicator {
-            font-size: 11px; color: var(--accent); margin-top: 5px; display: none;
-        }
-
-        .leaflet-tile {
-            image-rendering: -webkit-optimize-contrast !important;
-            image-rendering: pixelated !important;
-            image-rendering: crisp-edges !important;
-            -ms-interpolation-mode: nearest-neighbor !important;
-        }
-
-        .leaflet-popup-content-wrapper {
-            background: var(--ui-panel);
-            color: #fff;
-            border: 1px solid var(--border);
-            border-radius: 4px;
-        }
-        .leaflet-popup-tip { background: var(--ui-panel); }
-    </style>
+    <!-- 專案樣式 -->
+    <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
 
+    <!-- UI 控制面板 -->
     <div class="control-panel">
         <div class="info-box">
-            <h2 style="margin:0; font-size: 18px; color: var(--accent); letter-spacing: 1px;">DolphinGIS Map</h2>
-            <div style="font-size: 11px; opacity: 0.6; margin-top: 4px;">Minecraft Server Navigation System</div>
+            <h2 class="brand-title">DolphinGIS Map</h2>
+            <div class="sub-title">Minecraft Server Navigation System</div>
             <div id="loading-indicator">正在同步建物資料庫...</div>
         </div>
         
@@ -161,212 +23,23 @@
             <div class="search-box">
                 <input type="text" id="search-input" class="search-input" 
                        placeholder="搜尋名稱、地址或 ID" 
-                       autocomplete="off"
-                       oninput="handleSearchInput()" 
-                       onkeypress="handleKeyPress(event)">
-                <button class="search-btn" onclick="executeSearch()">搜尋</button>
+                       autocomplete="off">
+                <button id="search-btn" class="search-btn">搜尋</button>
             </div>
             <div id="results-list" class="results-list"></div>
         </div>
     </div>
 
+    <!-- 地圖容器 -->
     <div id="map"></div>
+    
+    <!-- 座標顯示 -->
     <div class="coord-display" id="coords">X: 0, Z: 0</div>
 
+    <!-- 腳本引用 (注意順序) -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script>
-        const BASE_URL = 'https://Bobkao0527.github.io/DolphinGIS/tiles'; 
-        const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vR9jvxjv3NxZ8dJ__TFMeimgwndvnd3cCG755Nt3Pq46K7AktqYUqFn43PEEgkQpeWbIMHiKcaTIMGH/pub?output=csv';
-        const TILE_SIZE = 512; 
-
-        let buildingData = []; 
-
-        const map = L.map('map', {
-            crs: L.CRS.Simple,
-            minZoom: -3, 
-            maxZoom: 4, 
-            zoomControl: false, 
-            attributionControl: false,
-            zoomAnimation: true, 
-            inertia: true,
-            zoomSnap: 1
-        }).setView([0, 0], 0);
-
-        L.control.zoom({ position: 'bottomright' }).addTo(map);
-
-        const MinecraftLayer = L.TileLayer.extend({
-            getTileUrl: function(coords) {
-                return `${BASE_URL}/${coords.x},${coords.y}.png`;
-            }
-        });
-
-        const mapLayer = new MinecraftLayer('', {
-            tileSize: TILE_SIZE,
-            noWrap: true,
-            maxNativeZoom: 0,
-            minNativeZoom: 0,
-            maxZoom: 4,
-            minZoom: -3
-        }).addTo(map);
-
-        function parseCSVLine(text) {
-            const re_valid = /^\s*(?:'[^'\\]*(?:\\[\S\s][^'\\]*)*'|"[^"\\]*(?:\\[\S\s][^"\\]*)*"|[^,'"\s\\]*(?:\s+[^,'"\s\\]+)*)\s*(?:,\s*(?:'[^'\\]*(?:\\[\S\s][^'\\]*)*'|"[^"\\]*(?:\\[\S\s][^"\\]*)*"|[^,'"\s\\]*(?:\s+[^,'"\s\\]+)*)\s*)*$/;
-            const re_value = /(?!\s*$)\s*(?:'([^'\\]*(?:\\[\S\s][^'\\]*)*)'|"([^"\\]*(?:\\[\S\s][^"\\]*)*)"|([^,'"\s\\]*(?:\s+[^,'"\s\\]+)*))\s*(?:,|$)/g;
-            if (!re_valid.test(text)) return [];
-            const a = [];
-            text.replace(re_value, (m0, m1, m2, m3) => {
-                if (m1 !== undefined) a.push(m1.replace(/\\'/g, "'"));
-                else if (m2 !== undefined) a.push(m2.replace(/\\"/g, '"'));
-                else if (m3 !== undefined) a.push(m3);
-                return '';
-            });
-            return a;
-        }
-
-        async function fetchBuildingData() {
-            const loader = document.getElementById('loading-indicator');
-            loader.style.display = 'block';
-            try {
-                const response = await fetch(CSV_URL);
-                const csvText = await response.text();
-                const lines = csvText.split(/\r?\n/).filter(line => line.trim() !== "");
-                buildingData = lines.slice(1).map(line => {
-                    const cols = parseCSVLine(line);
-                    if (cols.length < 5) return null;
-                    const id = cols[0];
-                    const rawCoords = cols[1]; 
-                    const name = cols[2];
-                    const addr = cols[3];
-                    const type = cols[4];
-                    let x = NaN, z = NaN;
-                    if (rawCoords) {
-                        const cleanCoords = rawCoords.replace(/[()]/g, ''); 
-                        const parts = cleanCoords.split(/[, ]+/).filter(p => p !== "");
-                        if (parts.length >= 2) {
-                            x = parseFloat(parts[0]);
-                            z = parseFloat(parts[1]);
-                        }
-                    }
-                    return { id, x, z, name, addr, type };
-                }).filter(b => b !== null && !isNaN(b.x) && !isNaN(b.z));
-                loader.innerHTML = `已同步 ${buildingData.length} 筆建物資料`;
-                setTimeout(() => loader.style.display = 'none', 3000);
-            } catch (error) {
-                loader.innerHTML = "資料同步失敗";
-            }
-        }
-
-        function executeSearch() {
-            const query = document.getElementById('search-input').value.trim().toLowerCase();
-            if (!query) return;
-            const coordMatch = query.match(/^(-?\d+(\.\d+)?)[, ]+(-?\d+(\.\d+)?)$/);
-            if (coordMatch) {
-                goToLocation(parseFloat(coordMatch[1]), parseFloat(coordMatch[3]), "手動定位");
-                return;
-            }
-            const results = buildingData.filter(b => 
-                (b.id && b.id.toLowerCase().includes(query)) || 
-                (b.name && b.name.toLowerCase().includes(query)) || 
-                (b.addr && b.addr.toLowerCase().includes(query))
-            );
-            if (results.length === 1) {
-                const b = results[0];
-                goToLocation(b.x, b.z, b.name, b.addr, b.type, b.id);
-            } else if (results.length > 1) {
-                showResultsList(results);
-            }
-        }
-
-        function handleSearchInput() {
-            const query = document.getElementById('search-input').value.trim().toLowerCase();
-            const list = document.getElementById('results-list');
-            if (query.length < 1) {
-                list.style.display = 'none';
-                return;
-            }
-            const results = buildingData.filter(b => 
-                (b.id && b.id.toLowerCase().includes(query)) || 
-                (b.name && b.name.toLowerCase().includes(query)) || 
-                (b.addr && b.addr.toLowerCase().includes(query))
-            ).slice(0, 15);
-            if (results.length > 0) {
-                showResultsList(results);
-            } else {
-                list.style.display = 'none';
-            }
-        }
-
-        function showResultsList(results) {
-            const list = document.getElementById('results-list');
-            list.innerHTML = '';
-            list.style.display = 'block';
-            results.forEach(res => {
-                const item = document.createElement('div');
-                item.className = 'result-item';
-                item.innerHTML = `
-                    <div class="item-header">
-                        <strong>${res.name || '未命名建物'}</strong>
-                        <span class="item-id">#${res.id}</span>
-                    </div>
-                    <span class="item-addr">${res.addr || '無地址資訊'}</span>
-                `;
-                item.onclick = () => {
-                    document.getElementById('search-input').value = res.name;
-                    goToLocation(res.x, res.z, res.name, res.addr, res.type, res.id);
-                };
-                list.appendChild(item);
-            });
-        }
-
-        function goToLocation(x, z, name, addr = "", type = "", id = "") {
-            const targetLatLng = L.latLng(-z, x);
-            document.getElementById('results-list').style.display = 'none';
-            map.flyTo(targetLatLng, 4, { animate: true, duration: 1.2 }); 
-            setTimeout(() => {
-                const content = `
-                    <div>
-                        <div style="font-size: 10px; color: var(--accent); margin-bottom: 2px;">${type || '建物'} ${id ? '#' + id : ''}</div>
-                        <b style="font-size: 14px; color: var(--accent);">${name || '定位點'}</b>
-                        <div style="font-size: 12px; margin: 5px 0; opacity: 0.8;">${addr}</div>
-                        <div style="font-family: monospace; font-size: 11px; border-top: 1px solid #444; padding-top: 5px; margin-top: 5px;">
-                            X: ${x}, Z: ${z}
-                        </div>
-                    </div>
-                `;
-                L.popup().setLatLng(targetLatLng).setContent(content).openOn(map);
-            }, 1200);
-        }
-
-        // 點擊地圖顯示座標功能
-        map.on('click', function(e) {
-            const x = Math.round(e.latlng.lng);
-            const z = Math.round(-e.latlng.lat);
-            const content = `
-                <div style="min-width: 100px;">
-                    <b style="color: var(--accent);">地圖標記</b>
-                    <div style="font-family: monospace; font-size: 12px; margin-top: 5px;">X: ${x}<br>Z: ${z}</div>
-                </div>
-            `;
-            L.popup().setLatLng(e.latlng).setContent(content).openOn(map);
-        });
-
-        map.on('mousemove', function(e) {
-            const mcX = Math.round(e.latlng.lng);
-            const mcZ = Math.round(-e.latlng.lat); 
-            document.getElementById('coords').innerHTML = `X: ${mcX}, Z: ${mcZ}`;
-        });
-
-        map.on('mousedown', () => document.getElementById('results-list').style.display = 'none');
-
-        function handleKeyPress(e) {
-            if (e.key === 'Enter') executeSearch();
-        }
-
-        window.onload = function() {
-            map.invalidateSize();
-            map.setView([0, 0], 0);
-            fetchBuildingData();
-        };
-    </script>
+    <script src="js/map-logic.js"></script>
+    <script src="js/search-logic.js"></script>
+    <script src="js/tracker-logic.js"></script>
 </body>
 </html>

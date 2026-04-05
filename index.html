@@ -22,7 +22,7 @@
             font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif;
         }
 
-        #map { height: 100vh; width: 100vw; background: #000; }
+        #map { height: 100vh; width: 100vw; background: #000; cursor: crosshair; }
 
         /* --- UI 面板 --- */
         .control-panel {
@@ -139,9 +139,6 @@
             -ms-interpolation-mode: nearest-neighbor !important;
         }
 
-        .leaflet-zoom-anim .leaflet-zoom-animated { will-change: transform; }
-        .leaflet-tile-pane img.leaflet-tile-error { display: none !important; }
-
         .leaflet-popup-content-wrapper {
             background: var(--ui-panel);
             color: #fff;
@@ -178,7 +175,6 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // 設定區：如果 index.html 與 tiles 資料夾在同一個 repo，BASE_URL 可以改為相對路徑 './tiles'
         const BASE_URL = 'https://Bobkao0527.github.io/DolphinGIS/tiles'; 
         const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vR9jvxjv3NxZ8dJ__TFMeimgwndvnd3cCG755Nt3Pq46K7AktqYUqFn43PEEgkQpeWbIMHiKcaTIMGH/pub?output=csv';
         const TILE_SIZE = 512; 
@@ -192,12 +188,8 @@
             zoomControl: false, 
             attributionControl: false,
             zoomAnimation: true, 
-            fadeAnimation: true,
-            markerZoomAnimation: true,
             inertia: true,
-            zoomSnap: 1, 
-            zoomDelta: 1,
-            wheelPxPerZoomLevel: 120
+            zoomSnap: 1
         }).setView([0, 0], 0);
 
         L.control.zoom({ position: 'bottomright' }).addTo(map);
@@ -214,20 +206,12 @@
             maxNativeZoom: 0,
             minNativeZoom: 0,
             maxZoom: 4,
-            minZoom: -3,
-            keepBuffer: 4, 
-            updateInterval: 100,
-            opacity: 1
+            minZoom: -3
         }).addTo(map);
 
-        /**
-         * 核心：正則表達式解析 CSV，正確處理引號內的逗號
-         * 用於處理如 "100,200" 被包在引號內的情況
-         */
         function parseCSVLine(text) {
             const re_valid = /^\s*(?:'[^'\\]*(?:\\[\S\s][^'\\]*)*'|"[^"\\]*(?:\\[\S\s][^"\\]*)*"|[^,'"\s\\]*(?:\s+[^,'"\s\\]+)*)\s*(?:,\s*(?:'[^'\\]*(?:\\[\S\s][^'\\]*)*'|"[^"\\]*(?:\\[\S\s][^"\\]*)*"|[^,'"\s\\]*(?:\s+[^,'"\s\\]+)*)\s*)*$/;
             const re_value = /(?!\s*$)\s*(?:'([^'\\]*(?:\\[\S\s][^'\\]*)*)'|"([^"\\]*(?:\\[\S\s][^"\\]*)*)"|([^,'"\s\\]*(?:\s+[^,'"\s\\]+)*))\s*(?:,|$)/g;
-            
             if (!re_valid.test(text)) return [];
             const a = [];
             text.replace(re_value, (m0, m1, m2, m3) => {
@@ -239,9 +223,6 @@
             return a;
         }
 
-        /**
-         * 從 Google Sheets 抓取資料並同步
-         */
         async function fetchBuildingData() {
             const loader = document.getElementById('loading-indicator');
             loader.style.display = 'block';
@@ -249,19 +230,14 @@
                 const response = await fetch(CSV_URL);
                 const csvText = await response.text();
                 const lines = csvText.split(/\r?\n/).filter(line => line.trim() !== "");
-                
-                // 跳過標題列進行解析
                 buildingData = lines.slice(1).map(line => {
                     const cols = parseCSVLine(line);
                     if (cols.length < 5) return null;
-
                     const id = cols[0];
                     const rawCoords = cols[1]; 
                     const name = cols[2];
                     const addr = cols[3];
                     const type = cols[4];
-
-                    // 解析座標：支援 "x,z"、"x z" 或括號格式
                     let x = NaN, z = NaN;
                     if (rawCoords) {
                         const cleanCoords = rawCoords.replace(/[()]/g, ''); 
@@ -271,66 +247,48 @@
                             z = parseFloat(parts[1]);
                         }
                     }
-
                     return { id, x, z, name, addr, type };
                 }).filter(b => b !== null && !isNaN(b.x) && !isNaN(b.z));
-
                 loader.innerHTML = `已同步 ${buildingData.length} 筆建物資料`;
                 setTimeout(() => loader.style.display = 'none', 3000);
             } catch (error) {
-                console.error("資料抓取失敗:", error);
-                loader.innerHTML = "資料同步失敗 (請檢查連線)";
+                loader.innerHTML = "資料同步失敗";
             }
         }
 
-        /**
-         * 執行搜尋邏輯
-         */
         function executeSearch() {
             const query = document.getElementById('search-input').value.trim().toLowerCase();
             if (!query) return;
-
-            // 支援直接輸入座標跳轉
             const coordMatch = query.match(/^(-?\d+(\.\d+)?)[, ]+(-?\d+(\.\d+)?)$/);
             if (coordMatch) {
                 goToLocation(parseFloat(coordMatch[1]), parseFloat(coordMatch[3]), "手動定位");
                 return;
             }
-
             const results = buildingData.filter(b => 
                 (b.id && b.id.toLowerCase().includes(query)) || 
                 (b.name && b.name.toLowerCase().includes(query)) || 
                 (b.addr && b.addr.toLowerCase().includes(query))
             );
-
             if (results.length === 1) {
                 const b = results[0];
                 goToLocation(b.x, b.z, b.name, b.addr, b.type, b.id);
             } else if (results.length > 1) {
                 showResultsList(results);
-            } else {
-                handleSearchInput();
             }
         }
 
-        /**
-         * 處理輸入時的即時建議列表
-         */
         function handleSearchInput() {
             const query = document.getElementById('search-input').value.trim().toLowerCase();
             const list = document.getElementById('results-list');
-
             if (query.length < 1) {
                 list.style.display = 'none';
                 return;
             }
-
             const results = buildingData.filter(b => 
                 (b.id && b.id.toLowerCase().includes(query)) || 
                 (b.name && b.name.toLowerCase().includes(query)) || 
                 (b.addr && b.addr.toLowerCase().includes(query))
             ).slice(0, 15);
-
             if (results.length > 0) {
                 showResultsList(results);
             } else {
@@ -338,14 +296,10 @@
             }
         }
 
-        /**
-         * 顯示搜尋結果清單
-         */
         function showResultsList(results) {
             const list = document.getElementById('results-list');
             list.innerHTML = '';
             list.style.display = 'block';
-
             results.forEach(res => {
                 const item = document.createElement('div');
                 item.className = 'result-item';
@@ -364,47 +318,50 @@
             });
         }
 
-        /**
-         * 跳轉至指定座標並開啟氣泡框
-         */
         function goToLocation(x, z, name, addr = "", type = "", id = "") {
             const targetLatLng = L.latLng(-z, x);
             document.getElementById('results-list').style.display = 'none';
-            
             map.flyTo(targetLatLng, 4, { animate: true, duration: 1.2 }); 
-            
             setTimeout(() => {
-                L.popup()
-                    .setLatLng(targetLatLng)
-                    .setContent(`
-                        <div style="min-width: 150px; padding: 2px;">
-                            <div style="font-size: 10px; color: var(--accent); margin-bottom: 2px;">${type || '建物'} ${id ? '#' + id : ''}</div>
-                            <b style="font-size: 14px; color: var(--accent);">${name || '手動標記'}</b>
-                            <div style="font-size: 12px; margin: 5px 0; opacity: 0.8;">${addr}</div>
-                            <div style="font-family: monospace; font-size: 11px; border-top: 1px solid #444; padding-top: 5px; margin-top: 5px;">
-                                X: ${x}, Z: ${z}
-                            </div>
+                const content = `
+                    <div>
+                        <div style="font-size: 10px; color: var(--accent); margin-bottom: 2px;">${type || '建物'} ${id ? '#' + id : ''}</div>
+                        <b style="font-size: 14px; color: var(--accent);">${name || '定位點'}</b>
+                        <div style="font-size: 12px; margin: 5px 0; opacity: 0.8;">${addr}</div>
+                        <div style="font-family: monospace; font-size: 11px; border-top: 1px solid #444; padding-top: 5px; margin-top: 5px;">
+                            X: ${x}, Z: ${z}
                         </div>
-                    `)
-                    .openOn(map);
-            }, 1100);
+                    </div>
+                `;
+                L.popup().setLatLng(targetLatLng).setContent(content).openOn(map);
+            }, 1200);
         }
 
-        // 滑鼠移動顯示實時座標
+        // 點擊地圖顯示座標功能
+        map.on('click', function(e) {
+            const x = Math.round(e.latlng.lng);
+            const z = Math.round(-e.latlng.lat);
+            const content = `
+                <div style="min-width: 100px;">
+                    <b style="color: var(--accent);">地圖標記</b>
+                    <div style="font-family: monospace; font-size: 12px; margin-top: 5px;">X: ${x}<br>Z: ${z}</div>
+                </div>
+            `;
+            L.popup().setLatLng(e.latlng).setContent(content).openOn(map);
+        });
+
         map.on('mousemove', function(e) {
             const mcX = Math.round(e.latlng.lng);
             const mcZ = Math.round(-e.latlng.lat); 
             document.getElementById('coords').innerHTML = `X: ${mcX}, Z: ${mcZ}`;
         });
 
-        // 點擊地圖時隱藏結果列表
         map.on('mousedown', () => document.getElementById('results-list').style.display = 'none');
 
         function handleKeyPress(e) {
             if (e.key === 'Enter') executeSearch();
         }
 
-        // 初始化
         window.onload = function() {
             map.invalidateSize();
             map.setView([0, 0], 0);

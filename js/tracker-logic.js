@@ -1,11 +1,11 @@
 /**
- * DolphinGIS - 玩家即時定位系統 (Firebase 版)
- * 負責從 Firebase 抓取座標並在地圖上移動玩家標記
+ * DolphinGIS - 玩家即時定位系統 (本地 Puppeteer API 版)
+ * 負責從本地 Puppeteer API 抓取座標並在地圖上移動玩家標記
  * 註：樣式由 style.css 控制，初始化依賴 map-logic.js 的 map 物件
  */
 
-// 你的 Firebase Realtime Database 網址
-const FIREBASE_DB_URL = "https://dgis-gps-default-rtdb.asia-southeast1.firebasedatabase.app/players.json";
+// 🔌 將原本的 Firebase 網址替換為本地 API 網址
+const LOCAL_API_URL = "http://localhost:3000/api/players";
 
 const tracker = {
     playerMarkers: {},
@@ -21,7 +21,6 @@ const tracker = {
      * 強力確保 UI 面板中已加入聯網狀態顯示
      */
     ensureStatusUI: function() {
-        // 如果已經存在就不要重複建立
         if (document.getElementById('tracker-status-container')) return;
 
         const infoBox = document.querySelector('.info-box');
@@ -43,7 +42,6 @@ const tracker = {
             this.statusEl = container;
             console.log("[DolphinGIS] Status UI attached.");
         } else {
-            // 每 200ms 檢查一次，直到面板出現
             setTimeout(() => this.ensureStatusUI(), 200);
         }
     },
@@ -59,17 +57,16 @@ const tracker = {
     },
 
     /**
-     * 定期從 Firebase 同步位置
+     * 定期從本地 API 同步位置
      */
     startSync: async function() {
         const fetchUpdates = async () => {
             try {
-                // 加一個隨機參數防止快取
-                const response = await fetch(`${FIREBASE_DB_URL}?nocache=${Date.now()}`);
+                // 🔄 改為請求本地 API
+                const response = await fetch(`${LOCAL_API_URL}?nocache=${Date.now()}`);
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
                 
-                // 更新 UI 狀態
                 this.updateStatusUI(true);
 
                 const activePlayersThisTick = new Set();
@@ -79,14 +76,15 @@ const tracker = {
                     Object.keys(data).forEach(playerName => {
                         const p = data[playerName];
                         
-                        // 1. 離線判定：超過 30 秒未更新視為離線
+                        // 1. 離線判定：超過 30 秒未更新視為離線 (沿用你完美的邏輯)
                         const isOnline = (now - p.ts) < 30000;
                         
-                        // 2. 維度判定：僅顯示主世界玩家
+                        // 2. 維度判定：純伺服器端指令預設就是主世界，或由後端給定
                         const isOverworld = p.dim && p.dim.includes("overworld");
                         
                         if (isOnline && isOverworld) {
                             activePlayersThisTick.add(playerName);
+                            // 💡 沿用你原本對齊的地圖座標計算：L.latLng(-z, x)
                             this.updatePlayerOnMap(playerName, p.x, p.z);
                         }
                     });
@@ -113,6 +111,7 @@ const tracker = {
     updatePlayerOnMap: function(name, x, z) {
         if (typeof map === 'undefined') return;
         
+        // 沿用你原本的對齊公式
         const latlng = L.latLng(-z, x); 
         
         if (this.playerMarkers[name]) {

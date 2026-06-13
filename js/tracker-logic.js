@@ -84,7 +84,7 @@ const tracker = {
                         // 1. 離線判定：超過 30 秒未更新視為離線
                         const isOnline = (now - p.ts) < 30000;
                         
-                        // 2. 維度判定：僅顯示主世界玩家 (支援 minecraft:overworld 包含字串)
+                        // 2. 維度判定：僅顯示主世界玩家
                         const isOverworld = p.dim && p.dim.includes("overworld");
                         
                         if (isOnline && isOverworld) {

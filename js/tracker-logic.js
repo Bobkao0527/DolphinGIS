@@ -1,17 +1,17 @@
 /**
- * DolphinGIS - 玩家即時定位系統 (Firebase 穩定版)
+ * DolphinGIS - 玩家即時定位系統 (Firebase 語法安全版)
  * 負責從 Firebase 抓取座標並在地圖上移動玩家標記
- * 註：樣式由 style.css 控制，初始化依賴 map-logic.js 的 map 物件
  */
 
-// 🔌 請確保這裡換成你正確的 Firebase 網址（必須保留結尾的 .json）
+// 🔌 請確保這裡換成你正確的 Firebase 網址
 const FIREBASE_DB_URL = "https://dgis-gps-default-rtdb.asia-southeast1.firebasedatabase.app/players.json";
 
 const tracker = {
     playerMarkers: {},
     statusEl: null,
     
-    init: function() {
+    // 現代 JS 語法，免去 init: function() 引起的結構誤判
+    init() {
         console.log("[DolphinGIS] Tracker: Connecting to Firebase...");
         console.log("[DolphinGIS] Tracker: Initializing...");
         this.ensureStatusUI();
@@ -20,10 +20,8 @@ const tracker = {
 
     /**
      * 確保 UI 面板中已加入聯網狀態顯示
-     * 使用遞迴檢查，直到找到 .info-box 為止
      */
-    ensureStatusUI: function() {
-        // 如果已經存在就不要重複建立
+    ensureStatusUI() {
         if (document.getElementById('tracker-status-container')) return;
 
         const infoBox = document.querySelector('.info-box');
@@ -45,12 +43,11 @@ const tracker = {
             this.statusEl = container;
             console.log("[DolphinGIS] Status UI attached.");
         } else {
-            // 每 200ms 檢查一次，直到面板出現
             setTimeout(() => this.ensureStatusUI(), 200);
         }
     },
 
-    updateStatusUI: function(isOnline) {
+    updateStatusUI(isOnline) {
         const dot = document.getElementById('tracker-dot');
         const text = document.getElementById('tracker-text');
         if (dot && text) {
@@ -63,15 +60,13 @@ const tracker = {
     /**
      * 定期從 Firebase 同步位置
      */
-    startSync: async function() {
+    async startSync() {
         const fetchUpdates = async () => {
             try {
-                // 加一個隨機參數防止瀏覽器快取舊數據
                 const response = await fetch(`${FIREBASE_DB_URL}?nocache=${Date.now()}`);
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
                 
-                // 更新 UI 狀態
                 this.updateStatusUI(true);
 
                 const activePlayersThisTick = new Set();
@@ -80,11 +75,7 @@ const tracker = {
                 if (data) {
                     Object.keys(data).forEach(playerName => {
                         const p = data[playerName];
-                        
-                        // 1. 離線判定：超過 30 秒未更新視為離線
                         const isOnline = (now - p.ts) < 30000;
-                        
-                        // 2. 維度判定：僅顯示主世界玩家
                         const isOverworld = p.dim && p.dim.includes("overworld");
                         
                         if (isOnline && isOverworld) {
@@ -94,7 +85,6 @@ const tracker = {
                     });
                 }
 
-                // 3. 清除過時標記
                 Object.keys(this.playerMarkers).forEach(name => {
                     if (!activePlayersThisTick.has(name)) {
                         this.removePlayer(name);
@@ -105,14 +95,13 @@ const tracker = {
                 console.error("[DolphinGIS] 同步失敗:", error);
                 this.updateStatusUI(false);
             }
-            // 每 1.5 秒同步一次
             setTimeout(fetchUpdates, 1500);
         };
         
         fetchUpdates();
     },
 
-    updatePlayerOnMap: function(name, x, z) {
+    updatePlayerOnMap(name, x, z) {
         if (typeof map === 'undefined') return;
         
         const latlng = L.latLng(-z, x); 
@@ -120,7 +109,6 @@ const tracker = {
         if (this.playerMarkers[name]) {
             this.playerMarkers[name].setLatLng(latlng);
         } else {
-            // 使用 CSS 中定義的 .player-dot 樣式
             const icon = L.divIcon({
                 className: 'player-icon-container',
                 html: `<div class="player-dot"></div>`,
@@ -128,10 +116,8 @@ const tracker = {
                 iconAnchor: [7, 7]
             });
 
-            // 建立 Leaflet Marker 並加入地圖
             const marker = L.marker(latlng, { icon: icon, zIndexOffset: 1000 }).addTo(map);
             
-            // 綁定名字標籤
             marker.bindTooltip(name, { 
                 permanent: true, 
                 direction: 'top', 
@@ -144,7 +130,7 @@ const tracker = {
         }
     },
 
-    removePlayer: function(name) {
+    removePlayer(name) {
         if (this.playerMarkers[name] && typeof map !== 'undefined') {
             map.removeLayer(this.playerMarkers[name]);
             delete this.playerMarkers[name];
@@ -153,7 +139,7 @@ const tracker = {
     }
 };
 
-// 啟動追蹤器 (延遲 1 秒確保地圖核心物件 map 初始化完成)
+// 啟動追蹤器
 document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
         if (typeof map !== 'undefined') {

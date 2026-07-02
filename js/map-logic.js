@@ -35,8 +35,8 @@ function initMap() {
         }
     });
 
-    // 加入底圖
-    new MinecraftLayer('', {
+    // 加入底圖，並保留參考以便其他模組使用（例如預載 tiles）
+    const baseLayer = new MinecraftLayer('', {
         tileSize: TILE_SIZE,
         noWrap: true,
         maxNativeZoom: 0,
@@ -44,6 +44,77 @@ function initMap() {
         maxZoom: 4,
         minZoom: -3
     }).addTo(map);
+    // 暴露給全域以供其他檔案存取
+    window.baseLayer = baseLayer;
+
+    /**
+     * 預載指定中心與縮放等級周圍的圖塊
+     * latlng: L.LatLng 要預載的中心
+     * zoom: 目標縮放等級
+     * padding: 圖塊半徑 (以 tile 為單位)，預設 1
+     * timeout: 最長等待毫秒數
+     * 回傳 Promise，在圖塊載入完成或逾時時 resolve
+     */
+    window.preloadTilesAt = function(latlng, zoom, padding = 0, timeout = 1200) {
+        return new Promise((resolve) => {
+            if (!map || !window.baseLayer) return resolve();
+
+            // 將中心 latlng 投影到指定 zoom 的像素座標
+            const centerPoint = map.project(latlng, zoom);
+            const centerTileX = Math.floor(centerPoint.x / TILE_SIZE);
+            const centerTileY = Math.floor(centerPoint.y / TILE_SIZE);
+
+            // 估算視窗在該 zoom 下的 tile 範圍（使用當前 map.size 作為 viewport 尺寸）
+            const sizePx = map.getSize();
+            const tilesAcross = Math.ceil(sizePx.x / TILE_SIZE);
+            const tilesDown = Math.ceil(sizePx.y / TILE_SIZE);
+
+            const halfX = Math.ceil(tilesAcross / 2) + padding;
+            const halfY = Math.ceil(tilesDown / 2) + padding;
+
+            const urls = [];
+            for (let dx = -halfX; dx <= halfX; dx++) {
+                for (let dy = -halfY; dy <= halfY; dy++) {
+                    const x = centerTileX + dx;
+                    const y = centerTileY + dy;
+                    const url = window.baseLayer.getTileUrl({ x: x, y: y, z: zoom });
+                    if (url) urls.push(url);
+                }
+            }
+
+            if (urls.length === 0) return resolve();
+
+            let loaded = 0;
+            let finished = false;
+
+            const checkDone = () => {
+                if (finished) return;
+                if (loaded >= urls.length) {
+                    finished = true;
+                    return resolve();
+                }
+            };
+
+            const to = setTimeout(() => {
+                if (finished) return;
+                finished = true;
+                return resolve();
+            }, timeout);
+
+            urls.forEach(u => {
+                const img = new Image();
+                img.onload = () => {
+                    loaded++;
+                    checkDone();
+                };
+                img.onerror = () => {
+                    loaded++;
+                    checkDone();
+                };
+                img.src = u;
+            });
+        });
+    };
 
     // 更新座標顯示
     map.on('mousemove', function(e) {

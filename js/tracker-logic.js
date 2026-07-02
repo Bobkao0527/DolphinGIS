@@ -8,12 +8,14 @@ const FIREBASE_DB_URL = "https://dgis-gps-default-rtdb.asia-southeast1.firebased
 
 const tracker = {
     playerMarkers: {},
+    onlinePlayers: {},
     statusEl: null,
     
     init() {
         console.log("[DolphinGIS] Tracker: Connecting to Firebase...");
         console.log("[DolphinGIS] Tracker: Initializing...");
         this.ensureStatusUI();
+        this.ensurePlayerMenuUI();
         this.startSync();
     },
 
@@ -56,6 +58,61 @@ const tracker = {
         }
     },
 
+    ensurePlayerMenuUI() {
+        const toggle = document.getElementById('player-menu-toggle');
+        const panel = document.getElementById('player-menu-panel');
+        const list = document.getElementById('player-menu-list');
+
+        if (!toggle || !panel || !list) return;
+
+        toggle.addEventListener('click', (event) => {
+            event.stopPropagation();
+            const isVisible = panel.style.display === 'block';
+            panel.style.display = isVisible ? 'none' : 'block';
+            if (!isVisible) this.renderPlayerMenu();
+        });
+
+        document.addEventListener('click', (event) => {
+            if (!toggle.contains(event.target) && !panel.contains(event.target)) {
+                panel.style.display = 'none';
+            }
+        });
+
+        this.renderPlayerMenu();
+    },
+
+    renderPlayerMenu() {
+        const toggle = document.getElementById('player-menu-toggle');
+        const list = document.getElementById('player-menu-list');
+        if (!toggle || !list) return;
+
+        const players = this.getOnlinePlayers();
+        toggle.textContent = `在線玩家 (${players.length})`;
+
+        if (players.length === 0) {
+            list.innerHTML = '<div class="player-menu-empty">目前沒有在線玩家</div>';
+            return;
+        }
+
+        list.innerHTML = '';
+        players.forEach(player => {
+            const item = document.createElement('div');
+            item.className = 'player-menu-item';
+            item.innerHTML = `
+                <img class="player-avatar" src="https://minotar.net/helm/${encodeURIComponent(player.name)}/32" alt="${player.name}" onerror="this.onerror=null; this.src='https://minotar.net/avatar/char/32';">
+                <div class="player-menu-name">${player.name}</div>
+            `;
+            item.addEventListener('click', () => {
+                if (typeof map !== 'undefined' && player.x != null && player.z != null) {
+                    goToLocation(player.x, player.z, player.name, '在線玩家', '在線玩家', player.name);
+                }
+                const panel = document.getElementById('player-menu-panel');
+                if (panel) panel.style.display = 'none';
+            });
+            list.appendChild(item);
+        });
+    },
+
     /**
      * 定期從 Firebase 同步位置
      */
@@ -81,6 +138,12 @@ const tracker = {
                         
                         if (isOnline && isOverworld) {
                             activePlayersThisTick.add(playerName);
+                            this.onlinePlayers[playerName] = {
+                                name: playerName,
+                                x: p.x,
+                                z: p.z,
+                                ts: p.ts
+                            };
                             this.updatePlayerOnMap(playerName, p.x, p.z);
                         }
                     });
@@ -92,6 +155,14 @@ const tracker = {
                     }
                 });
 
+                Object.keys(this.onlinePlayers).forEach(name => {
+                    if (!activePlayersThisTick.has(name)) {
+                        delete this.onlinePlayers[name];
+                    }
+                });
+
+                this.renderPlayerMenu();
+
             } catch (error) {
                 console.error("[DolphinGIS] 同步失敗:", error);
                 this.updateStatusUI(false);
@@ -100,6 +171,10 @@ const tracker = {
         };
         
         fetchUpdates();
+    },
+
+    getOnlinePlayers() {
+        return Object.values(this.onlinePlayers).filter(Boolean);
     },
 
     updatePlayerOnMap(name, x, z) {

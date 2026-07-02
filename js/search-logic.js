@@ -58,6 +58,46 @@ async function fetchBuildingData() {
     }
 }
 
+function getPlayerSearchResults(query) {
+    if (typeof tracker === 'undefined' || !tracker.getOnlinePlayers) return [];
+    return tracker.getOnlinePlayers()
+        .filter(player => player && player.name && player.name.toLowerCase().includes(query))
+        .map(player => ({
+            type: 'player',
+            name: player.name,
+            x: player.x,
+            z: player.z,
+            displayName: player.name,
+            addr: '在線玩家'
+        }));
+}
+
+function getBuildingSearchResults(query) {
+    return buildingData.filter(b => 
+        (b.id && b.id.toLowerCase().includes(query)) || 
+        (b.name && b.name.toLowerCase().includes(query)) || 
+        (b.addr && b.addr.toLowerCase().includes(query))
+    ).map(b => ({
+        type: 'building',
+        name: b.name,
+        x: b.x,
+        z: b.z,
+        addr: b.addr,
+        typeLabel: b.type,
+        id: b.id,
+        displayName: b.name || '未命名建物'
+    }));
+}
+
+function navigateToSearchResult(result) {
+    if (!result) return;
+    if (result.type === 'player') {
+        goToLocation(result.x, result.z, result.name, result.addr, '在線玩家', result.name);
+    } else {
+        goToLocation(result.x, result.z, result.name, result.addr, result.typeLabel, result.id);
+    }
+}
+
 // 執行搜尋跳轉
 function executeSearch() {
     const input = document.getElementById('search-input');
@@ -71,15 +111,12 @@ function executeSearch() {
         return;
     }
 
-    const results = buildingData.filter(b => 
-        (b.id && b.id.toLowerCase().includes(query)) || 
-        (b.name && b.name.toLowerCase().includes(query)) || 
-        (b.addr && b.addr.toLowerCase().includes(query))
-    );
+    const playerResults = getPlayerSearchResults(query);
+    const buildingResults = getBuildingSearchResults(query);
+    const results = [...playerResults, ...buildingResults];
 
     if (results.length === 1) {
-        const b = results[0];
-        goToLocation(b.x, b.z, b.name, b.addr, b.type, b.id);
+        navigateToSearchResult(results[0]);
     } else if (results.length > 1) {
         showResultsList(results);
     }
@@ -97,11 +134,9 @@ function handleSearchInput() {
         return;
     }
 
-    const results = buildingData.filter(b => 
-        (b.id && b.id.toLowerCase().includes(query)) || 
-        (b.name && b.name.toLowerCase().includes(query)) || 
-        (b.addr && b.addr.toLowerCase().includes(query))
-    ).slice(0, 15);
+    const playerResults = getPlayerSearchResults(query).slice(0, 10);
+    const buildingResults = getBuildingSearchResults(query).slice(0, 10);
+    const results = [...playerResults, ...buildingResults].slice(0, 15);
 
     if (results.length > 0) {
         showResultsList(results);
@@ -120,30 +155,42 @@ function showResultsList(results) {
     results.forEach(res => {
         const item = document.createElement('div');
         item.className = 'result-item';
+        const isPlayer = res.type === 'player';
         item.innerHTML = `
             <div class="item-header">
-                <strong>${res.name || '未命名建物'}</strong>
-                <span class="item-id">#${res.id}</span>
+                <strong>${res.displayName || res.name || '未命名建物'}</strong>
+                <span class="item-id">${isPlayer ? '在線玩家' : `#${res.id}`}</span>
             </div>
             <span class="item-addr">${res.addr || '無地址資訊'}</span>
         `;
         item.onclick = () => {
             const input = document.getElementById('search-input');
-            if (input) input.value = res.name;
-            goToLocation(res.x, res.z, res.name, res.addr, res.type, res.id);
+            if (input) input.value = res.displayName || res.name;
+            navigateToSearchResult(res);
         };
         list.appendChild(item);
     });
 }
 
 // 地圖跳轉功能
-function goToLocation(x, z, name, addr = "", type = "", id = "") {
+async function goToLocation(x, z, name, addr = "", type = "", id = "") {
     const targetLatLng = L.latLng(-z, x);
     const list = document.getElementById('results-list');
     if (list) list.style.display = 'none';
-    
-    map.flyTo(targetLatLng, 4, { animate: true, duration: 1.2 }); 
-    
+
+    const desiredZoom = 4;
+    try {
+        if (window.preloadTilesAt) {
+            // 先預載目標視野的高解析圖塊，再跳轉
+            await window.preloadTilesAt(targetLatLng, desiredZoom, 1, 900);
+        }
+    } catch (e) {
+        // 若預載失敗或逾時就直接跳轉
+        console.warn('[DolphinGIS] preload failed', e);
+    }
+
+    map.flyTo(targetLatLng, desiredZoom, { animate: true, duration: 1.2 });
+
     setTimeout(() => {
         const content = `
             <div>

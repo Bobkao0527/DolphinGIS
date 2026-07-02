@@ -28,6 +28,7 @@
             </div>
             <div id="results-list" class="results-list"></div>
         </div>
+
     </div>
 
     <!-- 地圖容器 -->
@@ -35,6 +36,15 @@
     
     <!-- 座標顯示 -->
     <div class="coord-display" id="coords">X: 0, Z: 0</div>
+
+    <!-- 在線玩家選單（固定於畫面，不在 control-panel 裡） -->
+    <div class="player-menu-container">
+        <button id="player-menu-toggle" class="player-menu-toggle">在線玩家 (0)</button>
+        <div id="player-menu-panel" class="player-menu-panel" style="display: none;">
+            <div class="player-menu-header">在線玩家</div>
+            <div id="player-menu-list" class="player-menu-list"></div>
+        </div>
+    </div>
 
     <!-- 腳本引用 (注意順序) -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

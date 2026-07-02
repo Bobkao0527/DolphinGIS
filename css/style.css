@@ -104,6 +104,96 @@ body, html {
 .result-item .item-id { font-size: 10px; color: var(--accent); opacity: 0.8; font-family: monospace; }
 .result-item .item-addr { display: block; font-size: 12px; opacity: 0.5; }
 
+/* --- 在線玩家選單 --- */
+.player-menu-container {
+    position: fixed; /* 固定於視窗左下，避開 control-panel */
+    left: 50px;
+    bottom: 100px;
+    z-index: 1300;
+}
+
+.player-menu-toggle {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    background: var(--ui-panel);
+    color: var(--accent);
+    font-size: 10px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.player-menu-toggle:hover {
+    background: rgba(85, 255, 85, 0.15);
+    transform: scale(1.04);
+}
+
+.player-menu-panel {
+    position: absolute;
+    left: 56px;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px;
+    background: rgba(20, 20, 20, 0.95);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    box-shadow: 0 8px 25px rgba(0,0,0,0.6);
+    min-height: 44px;
+}
+
+.player-menu-list {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: nowrap;
+}
+
+.player-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px 4px 4px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.06);
+    cursor: pointer;
+    transition: background 0.2s;
+    white-space: nowrap;
+}
+
+.player-menu-item:hover {
+    background: var(--hover-bg);
+}
+
+.player-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 1px solid #fff;
+    object-fit: cover;
+    background: #3c3c3c;
+}
+
+.player-menu-name {
+    color: #eee;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.player-menu-empty {
+    padding: 8px 12px;
+    color: rgba(255,255,255,0.6);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
 /* --- 座標顯示 --- */
 .coord-display {
     position: absolute; bottom: 30px; left: 30px;

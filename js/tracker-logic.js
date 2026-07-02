@@ -1,5 +1,5 @@
 /**
- * DolphinGIS - 玩家即時定位系統 (Firebase 語法安全版)
+ * DolphinGIS - 玩家即時定位系統 (Firebase 語法安全版 - 頭像升級版)
  * 負責從 Firebase 抓取座標並在地圖上移動玩家標記
  */
 
@@ -10,7 +10,6 @@ const tracker = {
     playerMarkers: {},
     statusEl: null,
     
-    // 現代 JS 語法，免去 init: function() 引起的結構誤判
     init() {
         console.log("[DolphinGIS] Tracker: Connecting to Firebase...");
         console.log("[DolphinGIS] Tracker: Initializing...");
@@ -75,6 +74,8 @@ const tracker = {
                 if (data) {
                     Object.keys(data).forEach(playerName => {
                         const p = data[playerName];
+                        
+                        // 🛠️ 修正 Bug：Firebase 的 ts 是 10 位數(秒)，需要乘以 1000 轉換為毫秒
                         const isOnline = (now - (p.ts * 1000)) < 30000;
                         const isOverworld = p.dim && p.dim.includes("overworld");
                         
@@ -95,7 +96,7 @@ const tracker = {
                 console.error("[DolphinGIS] 同步失敗:", error);
                 this.updateStatusUI(false);
             }
-            setTimeout(fetchUpdates, 3000);
+            setTimeout(fetchUpdates, 1500);
         };
         
         fetchUpdates();
@@ -109,11 +110,33 @@ const tracker = {
         if (this.playerMarkers[name]) {
             this.playerMarkers[name].setLatLng(latlng);
         } else {
+            // 👤 取得 Minecraft 玩家 Helm 頭像 (含外層3D立體頭盔，效果最好)
+            const avatarUrl = `https://minotar.net/helm/${name}/32`;
+            
             const icon = L.divIcon({
                 className: 'player-icon-container',
-                html: `<div class="player-dot"></div>`,
-                iconSize: [14, 14],
-                iconAnchor: [7, 7]
+                // 透過 inline CSS 渲染圓形外觀、白色邊框以及精緻的陰影效果
+                html: `
+                    <div class="player-avatar-wrapper" style="
+                        width: 32px;
+                        height: 32px;
+                        border-radius: 50%;
+                        border: 2px solid #ffffff;
+                        box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+                        overflow: hidden;
+                        background: #3c3c3c;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                    ">
+                        <img src="${avatarUrl}" 
+                             style="width: 100%; height: 100%; image-rendering: pixelated; display: block;" 
+                             alt="${name}" 
+                             onerror="this.onerror=null; this.src='https://minotar.net/avatar/char/32';">
+                    </div>
+                `,
+                iconSize: [36, 36],   // 包含白框的完整寬高
+                iconAnchor: [18, 18]  // 將地圖錨點精確定位在頭像正中心
             });
 
             const marker = L.marker(latlng, { icon: icon, zIndexOffset: 1000 }).addTo(map);
@@ -121,7 +144,7 @@ const tracker = {
             marker.bindTooltip(name, { 
                 permanent: true, 
                 direction: 'top', 
-                offset: [0, -10],
+                offset: [0, -20], // 配合較大尺寸的頭像，將名字標籤稍微往上移
                 className: 'player-tooltip'
             });
 

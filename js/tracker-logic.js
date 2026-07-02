@@ -75,7 +75,7 @@ const tracker = {
                 if (data) {
                     Object.keys(data).forEach(playerName => {
                         const p = data[playerName];
-                        const isOnline = (now - p.ts) < 30000;
+                        const isOnline = (now - (p.ts * 1000)) < 30000;
                         const isOverworld = p.dim && p.dim.includes("overworld");
                         
                         if (isOnline && isOverworld) {
@@ -95,7 +95,7 @@ const tracker = {
                 console.error("[DolphinGIS] 同步失敗:", error);
                 this.updateStatusUI(false);
             }
-            setTimeout(fetchUpdates, 1500);
+            setTimeout(fetchUpdates, 3000);
         };
         
         fetchUpdates();

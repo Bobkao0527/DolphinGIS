@@ -96,7 +96,7 @@ const tracker = {
                 console.error("[DolphinGIS] 同步失敗:", error);
                 this.updateStatusUI(false);
             }
-            setTimeout(fetchUpdates, 1500);
+            setTimeout(fetchUpdates, 2000);
         };
         
         fetchUpdates();

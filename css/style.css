@@ -241,3 +241,4 @@ body, html {
 .leaflet-popup-content-wrapper { background: var(--ui-panel); color: #fff; border: 1px solid var(--border); border-radius: 4px; }
 .leaflet-popup-tip { background: var(--ui-panel); }
 .leaflet-tooltip-pane { z-index: 650; }
+/* --- retry --- */

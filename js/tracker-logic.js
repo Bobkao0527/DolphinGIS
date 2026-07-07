@@ -3,8 +3,8 @@
  * 負責從自建的 Node.js API 抓取座標與朝向，並在地圖上移動、旋轉玩家標記
  */
 
-// 🔌 將原本的 Firebase 網址更換為你的甲骨文主機 DuckDNS 網域 (監聽 Port 3000)
-const API_URL = "https://hundreds-did-asked-regulation.trycloudflare.com/players.json";
+// 🔌 已更換為你最新的 Cloudflare Tunnel 安全加密 HTTPS 網址
+const API_URL = "https://mega-petition-winners-oasis.trycloudflare.com/players.json";
 
 const tracker = {
     playerMarkers: {},
@@ -12,7 +12,7 @@ const tracker = {
     statusEl: null,
     
     init() {
-        console.log("[DolphinGIS] Tracker: Connecting to Oracle Cloud API...");
+        console.log("[DolphinGIS] Tracker: Connecting to Oracle Cloud API via Cloudflare Tunnel...");
         console.log("[DolphinGIS] Tracker: Initializing...");
         this.ensureStatusUI();
         this.ensurePlayerMenuUI();
@@ -171,7 +171,8 @@ const tracker = {
                 console.error("[DolphinGIS] 同步失敗:", error);
                 this.updateStatusUI(false);
             }
-            setTimeout(fetchUpdates, 2000); // 每 2 秒同步一次
+            // ⚡️ 核心修改：將原本的 2000ms (2秒) 縮短至 500ms (0.5秒) 進行極速位置同步
+            setTimeout(fetchUpdates, 500); 
         };
         
         fetchUpdates();

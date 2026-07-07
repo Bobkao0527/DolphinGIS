@@ -4,7 +4,7 @@
  */
 
 // 🔌 將原本的 Firebase 網址更換為你的甲骨文主機 DuckDNS 網域 (監聽 Port 3000)
-const API_URL = "http://161.33.20.161:3000/players.json";
+const API_URL = "https://hundreds-did-asked-regulation.trycloudflare.com/players.json";
 
 const tracker = {
     playerMarkers: {},

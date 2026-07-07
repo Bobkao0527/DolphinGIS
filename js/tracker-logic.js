@@ -171,7 +171,7 @@ const tracker = {
                 console.error("[DolphinGIS] 同步失敗:", error);
                 this.updateStatusUI(false);
             }
-            // ⚡️ 核心修改：將原本的 2000ms (2秒) 縮短至 500ms (0.5秒) 進行極速位置同步
+            // ⚡️ 將原本的 2000ms (2秒) 縮短至 500ms (0.5秒) 進行極速位置同步
             setTimeout(fetchUpdates, 500); 
         };
         
@@ -189,6 +189,9 @@ const tracker = {
      */
     createPlayerIcon(name, yaw) {
         const avatarUrl = `https://minotar.net/helm/${name}/32`;
+        
+        // 🧭 在前端加上 180 度的偏向校正，確保箭頭完美指向玩家面向的地方
+        const correctedYaw = (yaw + 180) % 360;
         
         return L.divIcon({
             className: 'player-icon-container',
@@ -211,7 +214,7 @@ const tracker = {
                         position: absolute;
                         top: -10px; /* 往外推 10px 懸浮在頭像上方 */
                         left: 50%;
-                        transform: translateX(-50%) rotate(${yaw}deg);
+                        transform: translateX(-50%) rotate(${correctedYaw}deg);
                         transform-origin: 50% 28px; /* 10px 懸浮 + 18px 半徑 = 28px 完美對準圓心 */
                         width: 0;
                         height: 0;
@@ -290,3 +293,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }, 1000);
 });
+```
+eof
+
+### 🔍 修改了哪裡？
+在 `createPlayerIcon` 的第 175 行，我加了一行修正變數：
+```javascript
+// 🧭 在前端加上 180 度的偏向校正，確保位移完美對齊
+const correctedYaw = (yaw + 180) % 360;

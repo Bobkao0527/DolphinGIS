@@ -171,7 +171,7 @@ const tracker = {
                 console.error("[DolphinGIS] 同步失敗:", error);
                 this.updateStatusUI(false);
             }
-            // ⚡️ 將原本的 2000ms (2秒) 縮短至 500ms (0.5秒) 進行極速位置同步
+            // ⚡️ 每 500ms (0.5秒) 進行極速位置同步
             setTimeout(fetchUpdates, 500); 
         };
         
@@ -239,7 +239,7 @@ const tracker = {
                          onerror="this.onerror=null; this.src='https://minotar.net/avatar/char/32';">
                 </div>
             `,
-            iconSize: [36, 36],   // 包含白框的完整寬高
+            iconSize: [36, 36],   // 包含白框 of 完整寬高
             iconAnchor: [18, 18]  // 將地圖錨點精確定位在頭像正中心
         });
     },
@@ -293,11 +293,3 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }, 1000);
 });
-```
-eof
-
-### 🔍 修改了哪裡？
-在 `createPlayerIcon` 的第 175 行，我加了一行修正變數：
-```javascript
-// 🧭 在前端加上 180 度的偏向校正，確保位移完美對齊
-const correctedYaw = (yaw + 180) % 360;

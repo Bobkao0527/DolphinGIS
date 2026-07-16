@@ -91,7 +91,6 @@ function initMap() {
     // 自定義 Minecraft 多維度圖層類別
     const MinecraftLayer = L.TileLayer.extend({
         getTileUrl: function(coords) {
-            // tiles 下將會細分：tiles/overworld/、tiles/the_nether/...
             return `${BASE_URL}/${window.currentDimension}/${coords.x},${coords.y}.png`;
         }
     });
@@ -179,15 +178,16 @@ function initMap() {
         }
     });
 
-    // 點擊地圖產生標記
+    // 點擊地圖產生標記 (新增 data-dim 屬性與傳送鈕)
     map.on('click', function(e) {
         const x = Math.round(e.latlng.lng);
         const z = Math.round(-e.latlng.lat);
         const content = `
-            <div style="min-width: 100px;">
+            <div style="min-width: 140px;">
                 <b style="color: #55ff55;">地圖標記</b>
                 <div style="font-size: 11px; color: var(--player-accent); margin-top: 2px;">維度: ${window.currentDimension}</div>
-                <div style="font-family: monospace; font-size: 12px; margin-top: 5px; border-top: 1px solid #444; padding-top: 3px;">X: ${x}<br>Z: ${z}</div>
+                <div style="font-family: monospace; font-size: 12px; margin-top: 5px; border-top: 1px solid #444; padding-top: 3px; margin-bottom: 5px;">X: ${x}<br>Z: ${z}</div>
+                <button class="teleport-btn" data-x="${x}" data-z="${z}" data-dim="${window.currentDimension}" disabled>載入驗證中...</button>
             </div>
         `;
         L.popup().setLatLng(e.latlng).setContent(content).openOn(map);

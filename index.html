@@ -17,6 +17,30 @@
             <h2 class="brand-title">DolphinGIS Map</h2>
             <div class="sub-title">Minecraft Server Navigation System</div>
             <div id="loading-indicator">正在同步建物資料庫...</div>
+            
+            <!-- SSO 驗證區塊 (載入狀態/登入/登出) -->
+            <div class="auth-section" id="auth-section">
+                <div id="auth-loading" style="font-size: 11px; color: var(--player-accent);">正在確認登入狀態...</div>
+                
+                <div id="auth-guest" style="display: none;">
+                    <span style="font-size: 10px; opacity: 0.6; display: block; margin-bottom: 4px;">部分傳送功能需要驗證身份</span>
+                    <button id="login-btn" class="login-btn">
+                        <img src="https://minotar.net/avatar/char/16" style="width: 16px; height: 16px; border-radius: 2px;" alt="">
+                        Minecraft 統一登入
+                    </button>
+                </div>
+                
+                <div id="auth-user" style="display: none;">
+                    <div class="user-profile">
+                        <img id="user-avatar" class="player-avatar" src="" style="width: 28px; height: 28px;" alt="Avatar">
+                        <div class="user-info-text">
+                            <span id="user-name" style="font-size: 12px; font-weight: bold; color: var(--accent);">未知玩家</span>
+                            <span class="user-status-badge">傳送特權解鎖</span>
+                        </div>
+                    </div>
+                    <button id="logout-btn" class="logout-btn" style="margin-top: 8px;">安全登出</button>
+                </div>
+            </div>
         </div>
 
         <!-- 多維度切換下拉選單 -->
@@ -54,7 +78,7 @@
         <span>X: 0, Z: 0</span>
     </div>
 
-    <!-- 在線玩家選單（固定於畫面，不在 control-panel 裡） -->
+    <!-- 在線玩家選單 -->
     <div class="player-menu-container">
         <button id="player-menu-toggle" class="player-menu-toggle">在線玩家 (0)</button>
         <div id="player-menu-panel" class="player-menu-panel" style="display: none;">
@@ -63,8 +87,10 @@
         </div>
     </div>
 
-    <!-- 腳本引用 (注意順序) -->
+    <!-- 腳本引用 (注意載入順序：驗證核心 -> 傳送控制 -> 地圖邏輯) -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="js/login.js"></script>
+    <script src="js/teleport.js"></script>
     <script src="js/map-logic.js"></script>
     <script src="js/search-logic.js"></script>
     <script src="js/tracker-logic.js"></script>

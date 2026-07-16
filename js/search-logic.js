@@ -67,8 +67,9 @@ function getPlayerSearchResults(query) {
             name: player.name,
             x: player.x,
             z: player.z,
+            dim: player.dim, // 保留玩家維度資訊
             displayName: player.name,
-            addr: '在線玩家'
+            addr: `在線玩家 - ${player.dim.toUpperCase()}`
         }));
 }
 
@@ -92,8 +93,13 @@ function getBuildingSearchResults(query) {
 function navigateToSearchResult(result) {
     if (!result) return;
     if (result.type === 'player') {
+        // 如果是搜尋玩家，先自動跳轉到他所在的維度
+        if (typeof switchMapDimension === 'function') {
+            switchMapDimension(result.dim);
+        }
         goToLocation(result.x, result.z, result.name, result.addr, '在線玩家', result.name);
     } else {
+        // 建物預設在當前選取的維度，或者您可以自行擴充建物 CSV 的維度欄位
         goToLocation(result.x, result.z, result.name, result.addr, result.typeLabel, result.id);
     }
 }

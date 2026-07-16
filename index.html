@@ -18,6 +18,20 @@
             <div class="sub-title">Minecraft Server Navigation System</div>
             <div id="loading-indicator">正在同步建物資料庫...</div>
         </div>
+
+        <!-- 多維度切換按鈕 -->
+        <div class="dimension-selector">
+            <span class="dimension-label">當前維度 / Dimension</span>
+            <select id="dimension-select" class="dimension-select">
+                <option value="overworld">主世界 (Overworld)</option>
+                <option value="the_nether">地獄 (The Nether)</option>
+                <option value="the_end">終界 (The End)</option>
+                <option value="giant">巨人 (Giant)</option>
+                <option value="mini">縮微 (Mini)</option>
+                <option value="space">太空 (Space)</option>
+                <option value="survival">生存 (Survival)</option>
+            </select>
+        </div>
         
         <div class="search-container">
             <div class="search-box">
@@ -34,8 +48,11 @@
     <!-- 地圖容器 -->
     <div id="map"></div>
     
-    <!-- 座標顯示 -->
-    <div class="coord-display" id="coords">X: 0, Z: 0</div>
+    <!-- 座標顯示與當前維度 -->
+    <div class="coord-display" id="coords">
+        <span class="dim-display" id="current-dim-text">DIMENSION: OVERWORLD</span>
+        <span>X: 0, Z: 0</span>
+    </div>
 
     <!-- 在線玩家選單（固定於畫面，不在 control-panel 裡） -->
     <div class="player-menu-container">

@@ -40,6 +40,42 @@ body, html {
 .brand-title { margin: 0; font-size: 18px; color: var(--accent); letter-spacing: 1px; }
 .sub-title { font-size: 11px; opacity: 0.6; margin-top: 4px; }
 
+/* --- 維度切換 UI --- */
+.dimension-selector {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    background: var(--ui-panel);
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+}
+
+.dimension-label {
+    font-size: 11px;
+    color: var(--accent);
+    text-transform: uppercase;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+}
+
+.dimension-select {
+    background: #141414;
+    color: #fff;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px;
+    font-size: 13px;
+    outline: none;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.dimension-select:focus {
+    border-color: var(--accent);
+}
+
 /* --- 搜尋系統 --- */
 .search-container {
     position: relative;
@@ -185,6 +221,14 @@ body, html {
     color: #eee;
     font-size: 12px;
     font-weight: 600;
+    display: flex;
+    flex-direction: column;
+}
+
+.player-menu-dim {
+    font-size: 8px;
+    opacity: 0.6;
+    color: var(--player-accent);
 }
 
 .player-menu-empty {
@@ -194,7 +238,7 @@ body, html {
     white-space: nowrap;
 }
 
-/* --- 座標顯示 --- */
+/* --- 座標顯示與當前維度 --- */
 .coord-display {
     position: absolute; bottom: 30px; left: 30px;
     background: var(--ui-panel);
@@ -207,6 +251,16 @@ body, html {
     border-left: 4px solid var(--accent);
     box-shadow: 0 4px 15px rgba(0,0,0,0.5);
     pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dim-display {
+    font-size: 10px;
+    opacity: 0.7;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 /* --- 玩家定位樣式 --- */
@@ -241,4 +295,3 @@ body, html {
 .leaflet-popup-content-wrapper { background: var(--ui-panel); color: #fff; border: 1px solid var(--border); border-radius: 4px; }
 .leaflet-popup-tip { background: var(--ui-panel); }
 .leaflet-tooltip-pane { z-index: 650; }
-/* --- retry --- */

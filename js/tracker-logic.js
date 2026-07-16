@@ -1,5 +1,5 @@
 /**
- * DolphinGIS - 玩家即時定位系統 (甲骨文 API 直連版 - 帶朝向指針)
+ * DolphinGIS - 玩家即時定位系統 (甲骨文 API 直連版 - 帶朝向指針、維度自動比對)
  * 負責從自建的 Node.js API 抓取座標與朝向，並在地圖上移動、旋轉玩家標記
  */
 
@@ -100,9 +100,16 @@ const tracker = {
             item.className = 'player-menu-item';
             item.innerHTML = `
                 <img class="player-avatar" src="https://minotar.net/helm/${encodeURIComponent(player.name)}/32" alt="${player.name}" onerror="this.onerror=null; this.src='https://minotar.net/avatar/char/32';">
-                <div class="player-menu-name">${player.name}</div>
+                <div class="player-menu-name">
+                    <span>${player.name}</span>
+                    <span class="player-menu-dim">${player.dim.toUpperCase()}</span>
+                </div>
             `;
             item.addEventListener('click', () => {
+                // 點擊玩家列表時，自動切換至該玩家目前所在的維度，然後導航過去！
+                if (typeof switchMapDimension === 'function') {
+                    switchMapDimension(player.dim);
+                }
                 if (typeof map !== 'undefined' && player.x != null && player.z != null) {
                     goToLocation(player.x, player.z, player.name, '在線玩家', '在線玩家', player.name);
                 }
@@ -135,19 +142,26 @@ const tracker = {
                         
                         // 我們的 API 會幫忙過濾掉 10 秒沒動靜的玩家，所以這裡做個雙重保險即可
                         const isOnline = (now - (p.ts * 1000)) < 30000;
-                        const isOverworld = p.dim && p.dim.includes("overworld");
                         
-                        if (isOnline && isOverworld) {
+                        if (isOnline) {
+                            // 使用 map-logic 中的寬限比對，將維度解析為我們定義的 7 種
+                            const resolvedDim = (typeof matchDimension === 'function') 
+                                ? matchDimension(p.dim) 
+                                : 'overworld';
+
                             activePlayersThisTick.add(playerName);
+                            
                             this.onlinePlayers[playerName] = {
                                 name: playerName,
                                 x: p.x,
                                 z: p.z,
                                 ts: p.ts,
-                                yaw: p.yaw || 0 // 讀取 Java 送上來的朝向，若沒有則預設 0 (正南)
+                                dim: resolvedDim, // 儲存經寬限解析後的維度名稱
+                                yaw: p.yaw || 0   // 讀取 Java 送上來的朝向
                             };
-                            // 將座標與朝向同步更新到地圖上
-                            this.updatePlayerOnMap(playerName, p.x, p.z, p.yaw || 0);
+
+                            // 將座標與朝向更新至地圖
+                            this.updatePlayerOnMap(playerName, p.x, p.z, p.yaw || 0, resolvedDim);
                         }
                     });
                 }
@@ -184,8 +198,6 @@ const tracker = {
 
     /**
      * 建立帶有旋轉指針的自訂 Leaflet DivIcon
-     * @param {string} name 玩家名稱
-     * @param {number} yaw 朝向角度 (0 ~ 359)
      */
     createPlayerIcon(name, yaw) {
         const avatarUrl = `https://minotar.net/helm/${name}/32`;
@@ -195,7 +207,6 @@ const tracker = {
         
         return L.divIcon({
             className: 'player-icon-container',
-            // 透過精密計算的 CSS 來實現：玩家臉部保持正立，而綠色三角形指針繞著圓心自由旋轉
             html: `
                 <div class="player-avatar-wrapper" style="
                     width: 32px;
@@ -209,24 +220,24 @@ const tracker = {
                     justify-content: center;
                     position: relative;
                 ">
-                    <!-- 🧭 朝向綠色指針：繞著頭像的中心點（X:50%, Y:28px）進行 Yaw 角度旋轉 -->
+                    <!-- 🧭 朝向綠色指針 -->
                     <div class="player-direction-pointer" style="
                         position: absolute;
-                        top: -10px; /* 往外推 10px 懸浮在頭像上方 */
+                        top: -10px;
                         left: 50%;
                         transform: translateX(-50%) rotate(${correctedYaw}deg);
-                        transform-origin: 50% 28px; /* 10px 懸浮 + 18px 半徑 = 28px 完美對準圓心 */
+                        transform-origin: 50% 28px;
                         width: 0;
                         height: 0;
                         border-left: 6px solid transparent;
                         border-right: 6px solid transparent;
-                        border-bottom: 10px solid #55ff55; /* 明亮的導航綠色 */
+                        border-bottom: 10px solid #55ff55;
                         filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5));
-                        transition: transform 0.2s ease-out; /* 轉向平滑過渡 */
+                        transition: transform 0.2s ease-out;
                         z-index: 999;
                     "></div>
                     
-                    <!-- 👤 玩家 Helm 3D 頭像 (保持正立，圓形遮罩) -->
+                    <!-- 👤 玩家 Helm 3D 頭像 -->
                     <img src="${avatarUrl}" 
                          style="
                             width: 100%; 
@@ -239,17 +250,38 @@ const tracker = {
                          onerror="this.onerror=null; this.src='https://minotar.net/avatar/char/32';">
                 </div>
             `,
-            iconSize: [36, 36],   // 包含白框 of 完整寬高
-            iconAnchor: [18, 18]  // 將地圖錨點精確定位在頭像正中心
+            iconSize: [36, 36],
+            iconAnchor: [18, 18]
+        });
+    },
+
+    /**
+     * 重新整理地圖上玩家標記的顯示狀態
+     * 當使用者或系統切換了當前維度時會被呼叫，確保只在地圖上顯示「當前維度」的玩家。
+     */
+    refreshPlayersVisibility() {
+        if (typeof map === 'undefined') return;
+
+        Object.keys(this.onlinePlayers).forEach(name => {
+            const player = this.onlinePlayers[name];
+            if (player) {
+                this.updatePlayerOnMap(name, player.x, player.z, player.yaw, player.dim);
+            }
         });
     },
 
     /**
      * 更新或繪製地圖上的玩家標記
      */
-    updatePlayerOnMap(name, x, z, yaw) {
+    updatePlayerOnMap(name, x, z, yaw, playerDim) {
         if (typeof map === 'undefined') return;
         
+        // 🔒 關鍵安全防護：如果該玩家所處的維度與地圖當前的維度不同，就不在該圖層渲染他！
+        if (playerDim !== currentDimension) {
+            this.removePlayer(name); // 移出當前圖層
+            return;
+        }
+
         const latlng = L.latLng(-z, x); 
 
         if (this.playerMarkers[name]) {
@@ -265,12 +297,12 @@ const tracker = {
             marker.bindTooltip(name, { 
                 permanent: true, 
                 direction: 'top', 
-                offset: [0, -20], // 配合較大尺寸的頭像，將名字標籤稍微往上移避免擋住指針
+                offset: [0, -20],
                 className: 'player-tooltip'
             });
 
             this.playerMarkers[name] = marker;
-            console.log(`[DolphinGIS] 玩家進入地圖: ${name} (Yaw: ${yaw}°)`);
+            console.log(`[DolphinGIS] 玩家進入當前地圖: ${name} (維度: ${playerDim}, Yaw: ${yaw}°)`);
         }
     },
 
@@ -278,7 +310,6 @@ const tracker = {
         if (this.playerMarkers[name] && typeof map !== 'undefined') {
             map.removeLayer(this.playerMarkers[name]);
             delete this.playerMarkers[name];
-            console.log(`[DolphinGIS] 玩家離開地圖: ${name}`);
         }
     }
 };

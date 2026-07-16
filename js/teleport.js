@@ -12,12 +12,21 @@ const teleportSystem = {
         this.bindGlobalPopupWatcher();
     },
 
+    /**
+     * 依據維度名稱返回正確的 Minecraft 命名空間 ID
+     * - 原生維度 (overworld, nether, end) 使用 minecraft: 前綴
+     * - 其他自定義維度 (giant, mini, space, survival 等) 使用 custom: 前綴
+     */
     getMinecraftDimensionID(dim) {
-        const lower = (dim || 'overworld').toLowerCase();
+        const lower = (dim || 'overworld').toLowerCase().trim();
+        
+        // 原生維度對應
         if (lower === 'the_nether' || lower === 'nether') return 'minecraft:the_nether';
         if (lower === 'the_end' || lower === 'end') return 'minecraft:the_end';
         if (lower === 'overworld') return 'minecraft:overworld';
-        return `minecraft:${lower}`;
+        
+        // 其他自訂維度一律使用 custom: 命名空間
+        return `custom:${lower}`;
     },
 
     /**

@@ -1,9 +1,46 @@
 /**
- * DolphinGIS - 建物搜尋與 CSV 解析邏輯
+ * DolphinGIS - 建物搜尋與 CSV 解析邏輯 (支援 ID 維度自動辨識與跳轉)
  */
 
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vR9jvxjv3NxZ8dJ__TFMeimgwndvnd3cCG755Nt3Pq46K7AktqYUqFn43PEEgkQpeWbIMHiKcaTIMGH/pub?output=csv';
 let buildingData = [];
+
+// 中文化維度名稱對照表 (UI 顯示用)
+const DIM_ZH_NAMES = {
+    'overworld': '主世界',
+    'the_nether': '地獄',
+    'the_end': '終界',
+    'giant': '巨人',
+    'mini': '縮微',
+    'space': '太空',
+    'survival': '生存'
+};
+
+/**
+ * 依據建物編號 (ID) 規則分析其所屬維度
+ * 規則：
+ * - NET 開頭 -> 地獄 (the_nether)
+ * - END 開頭 -> 終界 (the_end)
+ * - GIA 開頭 -> 巨人 (giant)
+ * - MIN 開頭 -> 縮微 (mini)
+ * - SPA 開頭 -> 太空 (space)
+ * - SUR 開頭 -> 生存 (survival)
+ * - 其餘 (如 1英文+5數字) -> 主世界 (overworld)
+ */
+function getBuildingDimension(id) {
+    if (!id) return 'overworld';
+    const prefix = id.trim().toUpperCase().substring(0, 3);
+    
+    switch (prefix) {
+        case 'NET': return 'the_nether';
+        case 'END': return 'the_end';
+        case 'GIA': return 'giant';
+        case 'MIN': return 'mini';
+        case 'SPA': return 'space';
+        case 'SUR': return 'survival';
+        default: return 'overworld';
+    }
+}
 
 // 解析 CSV 格式 (處理逗號與引號)
 function parseCSVLine(text) {
@@ -62,15 +99,18 @@ function getPlayerSearchResults(query) {
     if (typeof tracker === 'undefined' || !tracker.getOnlinePlayers) return [];
     return tracker.getOnlinePlayers()
         .filter(player => player && player.name && player.name.toLowerCase().includes(query))
-        .map(player => ({
-            type: 'player',
-            name: player.name,
-            x: player.x,
-            z: player.z,
-            dim: player.dim, // 保留玩家維度資訊
-            displayName: player.name,
-            addr: `在線玩家 - ${player.dim.toUpperCase()}`
-        }));
+        .map(player => {
+            const dimName = DIM_ZH_NAMES[player.dim] || player.dim.toUpperCase();
+            return {
+                type: 'player',
+                name: player.name,
+                x: player.x,
+                z: player.z,
+                dim: player.dim, // 玩家定位本身的維度
+                displayName: player.name,
+                addr: `在線玩家 (${dimName})`
+            };
+        });
 }
 
 function getBuildingSearchResults(query) {
@@ -78,29 +118,36 @@ function getBuildingSearchResults(query) {
         (b.id && b.id.toLowerCase().includes(query)) || 
         (b.name && b.name.toLowerCase().includes(query)) || 
         (b.addr && b.addr.toLowerCase().includes(query))
-    ).map(b => ({
-        type: 'building',
-        name: b.name,
-        x: b.x,
-        z: b.z,
-        addr: b.addr,
-        typeLabel: b.type,
-        id: b.id,
-        displayName: b.name || '未命名建物'
-    }));
+    ).map(b => {
+        const detectedDim = getBuildingDimension(b.id);
+        const dimName = DIM_ZH_NAMES[detectedDim] || '未知維度';
+        return {
+            type: 'building',
+            name: b.name,
+            x: b.x,
+            z: b.z,
+            dim: detectedDim, // 解析出的建物維度
+            addr: b.addr,
+            typeLabel: b.type,
+            id: b.id,
+            displayName: b.name || '未命名建物',
+            dimLabel: dimName
+        };
+    });
 }
 
 function navigateToSearchResult(result) {
     if (!result) return;
+    
+    // 🌍 核心邏輯：跳轉前先切換至目標物件 (玩家或建物) 所在的維度
+    if (result.dim && typeof window.switchMapDimension === 'function') {
+        window.switchMapDimension(result.dim);
+    }
+
     if (result.type === 'player') {
-        // 如果是搜尋玩家，先自動跳轉到他所在的維度
-        if (typeof switchMapDimension === 'function') {
-            switchMapDimension(result.dim);
-        }
-        goToLocation(result.x, result.z, result.name, result.addr, '在線玩家', result.name);
+        goToLocation(result.x, result.z, result.name, result.addr, '在線玩家', result.name, result.dim);
     } else {
-        // 建物預設在當前選取的維度，或者您可以自行擴充建物 CSV 的維度欄位
-        goToLocation(result.x, result.z, result.name, result.addr, result.typeLabel, result.id);
+        goToLocation(result.x, result.z, result.name, result.addr, result.typeLabel, result.id, result.dim);
     }
 }
 
@@ -110,10 +157,10 @@ function executeSearch() {
     const query = input ? input.value.trim().toLowerCase() : '';
     if (!query) return;
 
-    // 支援直接輸入座標 "X, Z"
+    // 支援直接輸入座標 "X, Z" (預設在當前維度)
     const coordMatch = query.match(/^(-?\d+(\.\d+)?)[, ]+(-?\d+(\.\d+)?)$/);
     if (coordMatch) {
-        goToLocation(parseFloat(coordMatch[1]), parseFloat(coordMatch[3]), "手動定位");
+        goToLocation(parseFloat(coordMatch[1]), parseFloat(coordMatch[3]), "手動定位", "", "座標點", "", window.currentDimension || 'overworld');
         return;
     }
 
@@ -162,10 +209,14 @@ function showResultsList(results) {
         const item = document.createElement('div');
         item.className = 'result-item';
         const isPlayer = res.type === 'player';
+        
+        // 顯示 ID 與維度中文化標籤
+        const labelText = isPlayer ? '在線玩家' : `#${res.id} (${res.dimLabel})`;
+        
         item.innerHTML = `
             <div class="item-header">
                 <strong>${res.displayName || res.name || '未命名建物'}</strong>
-                <span class="item-id">${isPlayer ? '在線玩家' : `#${res.id}`}</span>
+                <span class="item-id" style="color: ${isPlayer ? 'var(--player-accent)' : 'var(--accent)'}">${labelText}</span>
             </div>
             <span class="item-addr">${res.addr || '無地址資訊'}</span>
         `;
@@ -178,8 +229,8 @@ function showResultsList(results) {
     });
 }
 
-// 地圖跳轉功能
-async function goToLocation(x, z, name, addr = "", type = "", id = "") {
+// 地圖跳轉與氣泡框功能
+async function goToLocation(x, z, name, addr = "", type = "", id = "", dim = "overworld") {
     const targetLatLng = L.latLng(-z, x);
     const list = document.getElementById('results-list');
     if (list) list.style.display = 'none';
@@ -191,16 +242,18 @@ async function goToLocation(x, z, name, addr = "", type = "", id = "") {
             await window.preloadTilesAt(targetLatLng, desiredZoom, 1, 900);
         }
     } catch (e) {
-        // 若預載失敗或逾時就直接跳轉
         console.warn('[DolphinGIS] preload failed', e);
     }
 
     map.flyTo(targetLatLng, desiredZoom, { animate: true, duration: 1.2 });
 
     setTimeout(() => {
+        const dimDisplay = DIM_ZH_NAMES[dim] || dim.toUpperCase();
         const content = `
             <div>
-                <div style="font-size: 10px; color: #55ff55; margin-bottom: 2px;">${type || '建物'} ${id ? '#' + id : ''}</div>
+                <div style="font-size: 10px; color: #55ff55; margin-bottom: 2px;">
+                    [${dimDisplay}] ${type || '建物'} ${id ? '#' + id : ''}
+                </div>
                 <b style="font-size: 14px; color: #55ff55;">${name || '定位點'}</b>
                 <div style="font-size: 12px; margin: 5px 0; opacity: 0.8;">${addr}</div>
                 <div style="font-family: monospace; font-size: 11px; border-top: 1px solid #444; padding-top: 5px; margin-top: 5px;">

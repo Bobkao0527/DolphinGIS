@@ -32,14 +32,17 @@
                 
                 <div id="auth-user" style="display: none;">
                     <div class="user-profile">
+                        <!-- HStack Item 1: 頭貼 -->
                         <img id="user-avatar" class="player-avatar" src="" style="width: 28px; height: 28px;" alt="Avatar">
+                        
+                        <!-- HStack Item 2: VStack (名字 + 狀態標籤) -->
                         <div class="user-info-text" style="flex-grow: 1;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-                                <span id="user-name" style="font-size: 12px; font-weight: bold; color: var(--accent);">未知玩家</span>
-                                <button id="logout-btn" class="logout-btn">登出</button>
-                            </div>
+                            <span id="user-name" style="font-size: 12px; font-weight: bold; color: var(--accent); display: block;">未知玩家</span>
                             <span class="user-status-badge">登入成功</span>
                         </div>
+                        
+                        <!-- HStack Item 3: 登出按鈕 -->
+                        <button id="logout-btn" class="logout-btn">登出</button>
                     </div>
                 </div>
             </div>

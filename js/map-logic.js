@@ -1,20 +1,15 @@
 /**
- * DolphinGIS - 地圖核心邏輯 (多維度支援版)
+ * DolphinGIS - 地圖核心邏輯
  */
 
 const BASE_URL = 'https://Bobkao0527.github.io/DolphinGIS/tiles'; 
 const TILE_SIZE = 512; 
 
-// 將地圖和當前維度宣告在全域，便於其他 JS 模組共享
 let map;
 window.currentDimension = 'overworld';
 
-// 支援的七個維度
 const DIMENSIONS = ['overworld', 'the_nether', 'the_end', 'giant', 'mini', 'space', 'survival'];
 
-/**
- * 寬限比對 (Fuzzy Match) 函數
- */
 function matchDimension(rawDim) {
     if (!rawDim) return 'overworld';
     
@@ -33,9 +28,6 @@ function matchDimension(rawDim) {
     return 'overworld';
 }
 
-/**
- * 切換地圖維度功能 (供全域呼叫，包含搜尋自動跳轉維度)
- */
 function switchMapDimension(rawDim, triggerUI = true) {
     const dim = matchDimension(rawDim);
     if (!DIMENSIONS.includes(dim)) return;
@@ -45,33 +37,27 @@ function switchMapDimension(rawDim, triggerUI = true) {
     console.log(`[DolphinGIS] 切換維度至: ${dim}`);
     window.currentDimension = dim;
 
-    // 更新地圖下方的維度顯示
     const dimTextEl = document.getElementById('current-dim-text');
     if (dimTextEl) {
         dimTextEl.innerText = `DIMENSION: ${dim.toUpperCase()}`;
     }
 
-    // 1. 同步下拉選單 UI
     if (triggerUI) {
         const selectEl = document.getElementById('dimension-select');
         if (selectEl) selectEl.value = dim;
     }
 
-    // 2. 觸發底圖重繪以讀取新維度的資料夾
     if (window.baseLayer && typeof window.baseLayer.redraw === 'function') {
         window.baseLayer.redraw();
     }
 
-    // 3. 呼叫 Tracker 更新，刷新當前維度下的玩家可見度
     if (typeof tracker !== 'undefined' && typeof tracker.refreshPlayersVisibility === 'function') {
         tracker.refreshPlayersVisibility();
     }
 }
 
-// 綁定到 window 使其成為全域全功能函式
 window.switchMapDimension = switchMapDimension;
 
-// 初始化函數
 function initMap() {
     if (!document.getElementById('map')) return;
 
@@ -88,7 +74,6 @@ function initMap() {
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-    // 自定義 Minecraft 多維度圖層類別
     const MinecraftLayer = L.TileLayer.extend({
         getTileUrl: function(coords) {
             return `${BASE_URL}/${window.currentDimension}/${coords.x},${coords.y}.png`;
@@ -105,7 +90,6 @@ function initMap() {
     }).addTo(map);
     window.baseLayer = baseLayer;
 
-    // 預載圖塊邏輯
     window.preloadTilesAt = function(latlng, zoom, padding = 0, timeout = 1200) {
         return new Promise((resolve) => {
             if (!map || !window.baseLayer) return resolve();
@@ -165,7 +149,6 @@ function initMap() {
         });
     };
 
-    // 更新座標顯示
     map.on('mousemove', function(e) {
         const mcX = Math.round(e.latlng.lng);
         const mcZ = Math.round(-e.latlng.lat); 
@@ -178,28 +161,27 @@ function initMap() {
         }
     });
 
-    // 點擊地圖產生標記 (新增 data-dim 屬性與傳送鈕)
+    // 點擊地圖產生標記 (支援 3D 規格坐落點，預設高度為 120)
     map.on('click', function(e) {
         const x = Math.round(e.latlng.lng);
+        const y = 120; 
         const z = Math.round(-e.latlng.lat);
         const content = `
             <div style="min-width: 140px;">
                 <b style="color: #55ff55;">地圖標記</b>
                 <div style="font-size: 11px; color: var(--player-accent); margin-top: 2px;">維度: ${window.currentDimension}</div>
-                <div style="font-family: monospace; font-size: 12px; margin-top: 5px; border-top: 1px solid #444; padding-top: 3px; margin-bottom: 5px;">X: ${x}<br>Z: ${z}</div>
-                <button class="teleport-btn" data-x="${x}" data-z="${z}" data-dim="${window.currentDimension}" disabled>載入驗證中...</button>
+                <div style="font-family: monospace; font-size: 12px; margin-top: 5px; border-top: 1px solid #444; padding-top: 3px; margin-bottom: 5px;">X: ${x}<br>Y: ${y}<br>Z: ${z}</div>
+                <button class="teleport-btn" data-x="${x}" data-y="${y}" data-z="${z}" data-dim="${window.currentDimension}" disabled>載入驗證中...</button>
             </div>
         `;
         L.popup().setLatLng(e.latlng).setContent(content).openOn(map);
     });
 
-    // 點擊地圖時隱藏搜尋結果
     map.on('mousedown', () => {
         const list = document.getElementById('results-list');
         if (list) list.style.display = 'none';
     });
 
-    // 綁定 UI 下拉選單切換維度事件
     const selectEl = document.getElementById('dimension-select');
     if (selectEl) {
         selectEl.addEventListener('change', (e) => {
@@ -208,10 +190,8 @@ function initMap() {
     }
 }
 
-// 確保網頁結構載入後才執行初始化
 document.addEventListener('DOMContentLoaded', initMap);
 
-// 視窗大小變更處理
 window.addEventListener('resize', () => {
     if (map) map.invalidateSize();
 });

@@ -1,11 +1,10 @@
 /**
- * DolphinGIS - 建物搜尋與 CSV 解析邏輯 (支援 ID 維度自動辨識與跳轉，並整合傳送按鈕)
+ * DolphinGIS - 建物搜尋與 CSV 解析邏輯 (全新支援 X, Y, Z 三維定位與彈出卡片按鈕簡化)
  */
 
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vR9jvxjv3NxZ8dJ__TFMeimgwndvnd3cCG755Nt3Pq46K7AktqYUqFn43PEEgkQpeWbIMHiKcaTIMGH/pub?output=csv';
 let buildingData = [];
 
-// 中文化維度名稱對照表 (UI 顯示用)
 const DIM_ZH_NAMES = {
     'overworld': '主世界',
     'the_nether': '地獄',
@@ -16,9 +15,6 @@ const DIM_ZH_NAMES = {
     'survival': '生存'
 };
 
-/**
- * 依據建物編號 (ID) 規則分析其所屬維度
- */
 function getBuildingDimension(id) {
     if (!id) return 'overworld';
     const prefix = id.trim().toUpperCase().substring(0, 3);
@@ -34,7 +30,6 @@ function getBuildingDimension(id) {
     }
 }
 
-// 解析 CSV 格式 (處理逗號與引號)
 function parseCSVLine(text) {
     const re_valid = /^\s*(?:'[^'\\]*(?:\\[\S\s][^'\\]*)*'|"[^"\\]*(?:\\[\S\s][^"\\]*)*"|[^,'"\s\\]*(?:\s+[^,'"\s\\]+)*)\s*(?:,\s*(?:'[^'\\]*(?:\\[\S\s][^'\\]*)*'|"[^"\\]*(?:\\[\S\s][^"\\]*)*"|[^,'"\s\\]*(?:\s+[^,'"\s\\]+)*)\s*)*$/;
     const re_value = /(?!\s*$)\s*(?:'([^'\\]*(?:\\[\S\s][^'\\]*)*)'|"([^"\\]*(?:\\[\S\s][^"\\]*)*)"|([^,'"\s\\]*(?:\s+[^,'"\s\\]+)*))\s*(?:,|$)/g;
@@ -49,7 +44,6 @@ function parseCSVLine(text) {
     return a;
 }
 
-// 從 Google Sheets 同步資料
 async function fetchBuildingData() {
     const loader = document.getElementById('loading-indicator');
     if (loader) loader.style.display = 'block';
@@ -66,16 +60,24 @@ async function fetchBuildingData() {
             const name = cols[2];
             const addr = cols[3];
             const type = cols[4];
-            let x = NaN, z = NaN;
+            let x = NaN, y = NaN, z = NaN;
             if (rawCoords) {
                 const cleanCoords = rawCoords.replace(/[()]/g, ''); 
                 const parts = cleanCoords.split(/[, ]+/).filter(p => p !== "");
-                if (parts.length >= 2) {
+                
+                // 🧭 支援 X, Y, Z 的三維格式解析
+                if (parts.length >= 3) {
                     x = parseFloat(parts[0]);
+                    y = parseFloat(parts[1]);
+                    z = parseFloat(parts[2]);
+                } else if (parts.length === 2) {
+                    // 若只有 X, Z 軸，預設以 120 為高度 fallback
+                    x = parseFloat(parts[0]);
+                    y = 120;
                     z = parseFloat(parts[1]);
                 }
             }
-            return { id, x, z, name, addr, type };
+            return { id, x, y, z, name, addr, type };
         }).filter(b => b !== null && !isNaN(b.x) && !isNaN(b.z));
 
         if (loader) {
@@ -97,6 +99,7 @@ function getPlayerSearchResults(query) {
                 type: 'player',
                 name: player.name,
                 x: player.x,
+                y: player.y !== undefined ? player.y : 120,
                 z: player.z,
                 dim: player.dim, 
                 displayName: player.name,
@@ -117,6 +120,7 @@ function getBuildingSearchResults(query) {
             type: 'building',
             name: b.name,
             x: b.x,
+            y: b.y,
             z: b.z,
             dim: detectedDim, 
             addr: b.addr,
@@ -135,22 +139,27 @@ function navigateToSearchResult(result) {
         window.switchMapDimension(result.dim);
     }
 
-    if (result.type === 'player') {
-        goToLocation(result.x, result.z, result.name, result.addr, '在線玩家', result.name, result.dim);
-    } else {
-        goToLocation(result.x, result.z, result.name, result.addr, result.typeLabel, result.id, result.dim);
-    }
+    goToLocation(result.x, result.y, result.z, result.name, result.addr, result.type === 'player' ? '在線玩家' : result.typeLabel, result.type === 'player' ? result.name : result.id, result.dim);
 }
 
-// 執行搜尋跳轉
 function executeSearch() {
     const input = document.getElementById('search-input');
     const query = input ? input.value.trim().toLowerCase() : '';
     if (!query) return;
 
-    const coordMatch = query.match(/^(-?\d+(\.\d+)?)[, ]+(-?\d+(\.\d+)?)$/);
+    const coordMatch = query.match(/^(-?\d+(\.\d+)?)[, ]+(-?\d+(\.\d+)?)([, ]+(-?\d+(\.\d+)?))?$/);
     if (coordMatch) {
-        goToLocation(parseFloat(coordMatch[1]), parseFloat(coordMatch[3]), "手動定位", "", "座標點", "", window.currentDimension || 'overworld');
+        const parsedX = parseFloat(coordMatch[1]);
+        let parsedY = 120;
+        let parsedZ = parseFloat(coordMatch[3]);
+        
+        // 若輸入 "X Y Z" 或 "X, Y, Z"
+        if (coordMatch[5] !== undefined) {
+            parsedY = parseFloat(coordMatch[3]);
+            parsedZ = parseFloat(coordMatch[6]);
+        }
+        
+        goToLocation(parsedX, parsedY, parsedZ, "手動定位", "", "座標點", "", window.currentDimension || 'overworld');
         return;
     }
 
@@ -165,7 +174,6 @@ function executeSearch() {
     }
 }
 
-// 處理輸入時的即時建議
 function handleSearchInput() {
     const input = document.getElementById('search-input');
     const query = input ? input.value.trim().toLowerCase() : '';
@@ -188,7 +196,6 @@ function handleSearchInput() {
     }
 }
 
-// 顯示搜尋結果清單
 function showResultsList(results) {
     const list = document.getElementById('results-list');
     if (!list) return;
@@ -217,8 +224,8 @@ function showResultsList(results) {
     });
 }
 
-// 地圖跳轉與氣泡框功能 (注入安全 data-屬性與傳送按鈕)
-async function goToLocation(x, z, name, addr = "", type = "", id = "", dim = "overworld") {
+// 導航跳轉 (帶入 X, Y, Z 三維數據，並調整按鈕簡化為「傳送」)
+async function goToLocation(x, y, z, name, addr = "", type = "", id = "", dim = "overworld") {
     const targetLatLng = L.latLng(-z, x);
     const list = document.getElementById('results-list');
     if (list) list.style.display = 'none';
@@ -244,16 +251,15 @@ async function goToLocation(x, z, name, addr = "", type = "", id = "", dim = "ov
                 <b style="font-size: 14px; color: #55ff55;">${name || '定位點'}</b>
                 <div style="font-size: 12px; margin: 5px 0; opacity: 0.8;">${addr}</div>
                 <div style="font-family: monospace; font-size: 11px; border-top: 1px solid #444; padding-top: 5px; margin-top: 5px; margin-bottom: 8px;">
-                    X: ${Math.round(x)}, Z: ${Math.round(z)}
+                    X: ${Math.round(x)}, Y: ${Math.round(y)}, Z: ${Math.round(z)}
                 </div>
-                <button class="teleport-btn" data-x="${x}" data-z="${z}" data-dim="${dim}" disabled>載入驗證中...</button>
+                <button class="teleport-btn" data-x="${x}" data-y="${y}" data-z="${z}" data-dim="${dim}" disabled>載入驗證中...</button>
             </div>
         `;
         L.popup().setLatLng(targetLatLng).setContent(content).openOn(map);
     }, 1200);
 }
 
-// 綁定事件
 document.addEventListener('DOMContentLoaded', () => {
     const searchInput = document.getElementById('search-input');
     const searchBtn = document.getElementById('search-btn');

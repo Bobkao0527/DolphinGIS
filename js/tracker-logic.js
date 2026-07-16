@@ -1,9 +1,7 @@
 /**
- * DolphinGIS - 玩家即時定位系統 (甲骨文 API 直連版 - 帶朝向指針、維度自動比對)
- * 負責從自建的 Node.js API 抓取座標與朝向，並在地圖上移動、旋轉玩家標記
+ * DolphinGIS - 玩家即時定位系統
  */
 
-// 🔌 已更換為你最新的 Cloudflare Tunnel 安全加密 HTTPS 網址
 const API_URL = "https://mega-petition-winners-oasis.trycloudflare.com/players.json";
 
 const tracker = {
@@ -12,16 +10,12 @@ const tracker = {
     statusEl: null,
     
     init() {
-        console.log("[DolphinGIS] Tracker: Connecting to Oracle Cloud API via Cloudflare Tunnel...");
-        console.log("[DolphinGIS] Tracker: Initializing...");
+        console.log("[DolphinGIS] Tracker: Connecting to Oracle Cloud API...");
         this.ensureStatusUI();
         this.ensurePlayerMenuUI();
         this.startSync();
     },
 
-    /**
-     * 確保 UI 面板中已加入聯網狀態顯示
-     */
     ensureStatusUI() {
         if (document.getElementById('tracker-status-container')) return;
 
@@ -42,7 +36,6 @@ const tracker = {
             `;
             infoBox.appendChild(container);
             this.statusEl = container;
-            console.log("[DolphinGIS] Status UI attached.");
         } else {
             setTimeout(() => this.ensureStatusUI(), 200);
         }
@@ -106,12 +99,12 @@ const tracker = {
                 </div>
             `;
             item.addEventListener('click', () => {
-                // 點擊玩家列表時，自動切換至該玩家目前所在的維度，然後導航過去！
                 if (typeof switchMapDimension === 'function') {
                     switchMapDimension(player.dim);
                 }
                 if (typeof map !== 'undefined' && player.x != null && player.z != null) {
-                    goToLocation(player.x, player.z, player.name, '在線玩家', '在線玩家', player.name);
+                    const playerY = player.y !== undefined ? player.y : 120;
+                    goToLocation(player.x, playerY, player.z, player.name, '在線玩家', '在線玩家', player.name, player.dim);
                 }
                 const panel = document.getElementById('player-menu-panel');
                 if (panel) panel.style.display = 'none';
@@ -120,13 +113,9 @@ const tracker = {
         });
     },
 
-    /**
-     * 定期從我們的 Node.js API 同步位置
-     */
     async startSync() {
         const fetchUpdates = async () => {
             try {
-                // 向自建 API 請求最新玩家資料 (加上 nocache 參數避免瀏覽器快取舊資料)
                 const response = await fetch(`${API_URL}?nocache=${Date.now()}`);
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
@@ -139,12 +128,9 @@ const tracker = {
                 if (data) {
                     Object.keys(data).forEach(playerName => {
                         const p = data[playerName];
-                        
-                        // 我們的 API 會幫忙過濾掉 10 秒沒動靜的玩家，所以這裡做個雙重保險即可
                         const isOnline = (now - (p.ts * 1000)) < 30000;
                         
                         if (isOnline) {
-                            // 使用 map-logic 中的寬限比對，將維度解析為我們定義的 7 種
                             const resolvedDim = (typeof matchDimension === 'function') 
                                 ? matchDimension(p.dim) 
                                 : 'overworld';
@@ -154,19 +140,18 @@ const tracker = {
                             this.onlinePlayers[playerName] = {
                                 name: playerName,
                                 x: p.x,
+                                y: p.y !== undefined ? p.y : 120, // 儲存玩家高度 (若 API 有傳回)
                                 z: p.z,
                                 ts: p.ts,
-                                dim: resolvedDim, // 儲存經寬限解析後的維度名稱
-                                yaw: p.yaw || 0   // 讀取 Java 送上來的朝向
+                                dim: resolvedDim, 
+                                yaw: p.yaw || 0   
                             };
 
-                            // 將座標與朝向更新至地圖
                             this.updatePlayerOnMap(playerName, p.x, p.z, p.yaw || 0, resolvedDim);
                         }
                     });
                 }
 
-                // 清除已經下線或不再發送訊號的玩家標記
                 Object.keys(this.playerMarkers).forEach(name => {
                     if (!activePlayersThisTick.has(name)) {
                         this.removePlayer(name);
@@ -185,7 +170,6 @@ const tracker = {
                 console.error("[DolphinGIS] 同步失敗:", error);
                 this.updateStatusUI(false);
             }
-            // ⚡️ 每 500ms (0.5秒) 進行極速位置同步
             setTimeout(fetchUpdates, 500); 
         };
         
@@ -196,13 +180,8 @@ const tracker = {
         return Object.values(this.onlinePlayers).filter(Boolean);
     },
 
-    /**
-     * 建立帶有旋轉指針的自訂 Leaflet DivIcon
-     */
     createPlayerIcon(name, yaw) {
         const avatarUrl = `https://minotar.net/helm/${name}/32`;
-        
-        // 🧭 在前端加上 180 度的偏向校正，確保箭頭完美指向玩家面向的地方
         const correctedYaw = (yaw + 180) % 360;
         
         return L.divIcon({
@@ -220,7 +199,6 @@ const tracker = {
                     justify-content: center;
                     position: relative;
                 ">
-                    <!-- 🧭 朝向綠色指針 -->
                     <div class="player-direction-pointer" style="
                         position: absolute;
                         top: -10px;
@@ -237,7 +215,6 @@ const tracker = {
                         z-index: 999;
                     "></div>
                     
-                    <!-- 👤 玩家 Helm 3D 頭像 -->
                     <img src="${avatarUrl}" 
                          style="
                             width: 100%; 
@@ -255,10 +232,6 @@ const tracker = {
         });
     },
 
-    /**
-     * 重新整理地圖上玩家標記的顯示狀態
-     * 當使用者或系統切換了當前維度時會被呼叫，確保只在地圖上顯示「當前維度」的玩家。
-     */
     refreshPlayersVisibility() {
         if (typeof map === 'undefined') return;
 
@@ -270,27 +243,20 @@ const tracker = {
         });
     },
 
-    /**
-     * 更新或繪製地圖上的玩家標記
-     */
     updatePlayerOnMap(name, x, z, yaw, playerDim) {
         if (typeof map === 'undefined') return;
         
-        // 🔒 關鍵安全防護：如果該玩家所處的維度與地圖當前的維度不同，就不在該圖層渲染他！
         if (playerDim !== currentDimension) {
-            this.removePlayer(name); // 移出當前圖層
+            this.removePlayer(name);
             return;
         }
 
         const latlng = L.latLng(-z, x); 
 
         if (this.playerMarkers[name]) {
-            // 標記已存在，更新座標
             this.playerMarkers[name].setLatLng(latlng);
-            // 🔄 動態更新 Icon，帶入最新算好的 Yaw 角度指針
             this.playerMarkers[name].setIcon(this.createPlayerIcon(name, yaw));
         } else {
-            // 標記不存在，初次建立
             const icon = this.createPlayerIcon(name, yaw);
             const marker = L.marker(latlng, { icon: icon, zIndexOffset: 1000 }).addTo(map);
             
@@ -302,7 +268,6 @@ const tracker = {
             });
 
             this.playerMarkers[name] = marker;
-            console.log(`[DolphinGIS] 玩家進入當前地圖: ${name} (維度: ${playerDim}, Yaw: ${yaw}°)`);
         }
     },
 
@@ -314,13 +279,12 @@ const tracker = {
     }
 };
 
-// 啟動追蹤器
 document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
         if (typeof map !== 'undefined') {
             tracker.init();
         } else {
-            console.error("[DolphinGIS] 無法定位地圖 L.map 物件，追蹤器暫停啟動。");
+            console.error("[DolphinGIS] Tracker: map object not found.");
         }
     }, 1000);
 });

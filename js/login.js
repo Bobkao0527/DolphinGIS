@@ -18,18 +18,15 @@ const authSystem = {
     },
 
     /**
-     * 步驟 1: 檢查 URL 中是否含有驗證完成後的 Hash 參數 (#token=...)
+     * 檢查 URL 是否有 Hash token 參數
      */
     checkUrlToken() {
         const hash = window.location.hash;
         if (hash && hash.startsWith('#token=')) {
             const token = hash.replace('#token=', '').trim();
             if (token) {
-                // 將 Token 存入快取
                 localStorage.setItem('mc_auth_token', token);
-                console.log("[DolphinGIS] Auth: Token captured from URL and cached.");
-                
-                // 清除網址列 Hash 參數以求乾淨美觀
+                console.log("[DolphinGIS] Auth: Token captured and cached.");
                 history.replaceState(
                     null, 
                     document.title, 
@@ -40,7 +37,7 @@ const authSystem = {
     },
 
     /**
-     * 步驟 2: 向自建 SSO Verify API 發送驗證，確認 Token 有效性
+     * 向驗證 API 送出驗證請求
      */
     async verifyCurrentSession() {
         const token = localStorage.getItem('mc_auth_token');
@@ -49,7 +46,7 @@ const authSystem = {
         const userEl = document.getElementById('auth-user');
 
         if (!token) {
-            console.log("[DolphinGIS] Auth: No cached token. Operating in guest mode.");
+            console.log("[DolphinGIS] Auth: Operating in guest mode.");
             this.setGuestState(loadingEl, guestEl, userEl);
             return;
         }
@@ -66,20 +63,16 @@ const authSystem = {
             const data = await response.json();
 
             if (data && data.valid) {
-                console.log(`[DolphinGIS] Auth: Welcome back, ${data.username}!`);
                 this.currentUser = data.username;
                 this.authToken = token;
                 this.setLoggedInState(data.username, loadingEl, guestEl, userEl);
-                
-                // 發送全域驗證完成事件，供傳送系統等模組監聽
                 document.dispatchEvent(new CustomEvent('auth-success', { detail: data }));
             } else {
-                console.warn("[DolphinGIS] Auth: Token verification failed.", data.message || "");
                 this.clearSession();
                 this.setGuestState(loadingEl, guestEl, userEl);
             }
         } catch (error) {
-            console.error("[DolphinGIS] Auth: Error during session verification:", error);
+            console.error("[DolphinGIS] Auth: Verification error:", error);
             this.setGuestState(loadingEl, guestEl, userEl);
         }
     },
@@ -97,7 +90,6 @@ const authSystem = {
         if (guest) guest.style.display = 'none';
         if (user) user.style.display = 'block';
 
-        // 渲染玩家 Helm 與名稱
         const nameEl = document.getElementById('user-name');
         const avatarEl = document.getElementById('user-avatar');
         
@@ -122,7 +114,6 @@ const authSystem = {
 
         if (loginBtn) {
             loginBtn.addEventListener('click', () => {
-                // 將玩家重新導向至中央登入網域，並在網址參數帶上當前頁面的網址作為歸途路徑
                 const returnUrl = encodeURIComponent(window.location.href);
                 window.location.href = `${SSO_PORTAL}?returnUrl=${returnUrl}`;
             });
@@ -145,7 +136,6 @@ const authSystem = {
     }
 };
 
-// 全域註冊
 window.authSystem = authSystem;
 
 document.addEventListener('DOMContentLoaded', () => {

@@ -17,9 +17,6 @@ const authSystem = {
     },
 
     /**
-     * 向驗證 API 送出驗證請求
-     */
-    /**
      * 向 SSO 驗證 API 發送驗證請求 (帶入 HttpOnly Cookie)
      */
     async verifyCurrentSession() {

@@ -2,9 +2,9 @@
  * DolphinGIS - Minecraft 統一登入 (SSO) 系統
  * 負責金鑰截取、localStorage 快取、SSO Gateway 整合與 UI 狀態同步
  */
-
-const SSO_PORTAL = "https://dolphinloginsystem.pages.dev";
-const VERIFY_API = "https://dolphinloginsystem.pages.dev/api/verify";
+const SSO_PORTAL = "https://sso.greendolphin.dpdns.org/index.html";
+const VERIFY_API = "https://sso.greendolphin.dpdns.org/api/verify";
+const LOGOUT_API = "https://sso.greendolphin.dpdns.org/api/logout";
 
 const authSystem = {
     currentUser: null,
@@ -12,74 +12,51 @@ const authSystem = {
 
     init() {
         console.log("[DolphinGIS] Auth: Initializing SSO integration...");
-        this.checkUrlToken();
         this.verifyCurrentSession();
         this.bindEvents();
     },
 
     /**
-     * 檢查 URL 是否有 Hash token 參數
-     */
-    checkUrlToken() {
-        const hash = window.location.hash;
-        if (hash && hash.startsWith('#token=')) {
-            const token = hash.replace('#token=', '').trim();
-            if (token) {
-                localStorage.setItem('mc_auth_token', token);
-                console.log("[DolphinGIS] Auth: Token captured and cached.");
-                history.replaceState(
-                    null, 
-                    document.title, 
-                    window.location.pathname + window.location.search
-                );
-            }
-        }
-    },
-
-    /**
      * 向驗證 API 送出驗證請求
      */
+    /**
+     * 向 SSO 驗證 API 發送驗證請求 (帶入 HttpOnly Cookie)
+     */
     async verifyCurrentSession() {
-        const token = localStorage.getItem('mc_auth_token');
         const loadingEl = document.getElementById('auth-loading');
         const guestEl = document.getElementById('auth-guest');
         const userEl = document.getElementById('auth-user');
-
-        if (!token) {
-            console.log("[DolphinGIS] Auth: Operating in guest mode.");
-            this.setGuestState(loadingEl, guestEl, userEl);
-            return;
-        }
 
         try {
             const response = await fetch(VERIFY_API, {
                 method: 'GET',
                 headers: {
-                    'Authorization': `Bearer ${token}`
-                }
+                    'Content-Type': 'application/json'
+                },
+                credentials: 'include'
             });
 
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const data = await response.json();
-
-            if (data && data.valid) {
-                this.currentUser = data.username;
-                this.authToken = token;
-                this.setLoggedInState(data.username, loadingEl, guestEl, userEl);
-                document.dispatchEvent(new CustomEvent('auth-success', { detail: data }));
-            } else {
-                this.clearSession();
-                this.setGuestState(loadingEl, guestEl, userEl);
+            if (response.ok) {
+                const data = await response.json();
+                if (data && data.valid) {
+                    this.currentUser = data.username;
+                    this.setLoggedInState(data.username, loadingEl, guestEl, userEl);
+                    document.dispatchEvent(new CustomEvent('auth-success', { detail: data }));
+                    return;
+                }
             }
+
+            this.clearSession();
+            this.setGuestState(loadingEl, guestEl, userEl);
         } catch (error) {
             console.error("[DolphinGIS] Auth: Verification error:", error);
+            this.clearSession();
             this.setGuestState(loadingEl, guestEl, userEl);
         }
     },
 
     setGuestState(loading, guest, user) {
         this.currentUser = null;
-        this.authToken = null;
         if (loading) loading.style.display = 'none';
         if (guest) guest.style.display = 'block';
         if (user) user.style.display = 'none';
@@ -103,9 +80,7 @@ const authSystem = {
     },
 
     clearSession() {
-        localStorage.removeItem('mc_auth_token');
         this.currentUser = null;
-        this.authToken = null;
     },
 
     bindEvents() {
@@ -120,10 +95,26 @@ const authSystem = {
         }
 
         if (logoutBtn) {
-            logoutBtn.addEventListener('click', () => {
-                this.clearSession();
-                window.location.reload();
+            logoutBtn.addEventListener('click', async () => {
+                await this.logout();
             });
+        }
+    },
+
+    /**
+     * 呼叫 SSO 端點清除後端 HttpOnly Cookie Session
+     */
+    async logout() {
+        try {
+            await fetch(LOGOUT_API, {
+                method: 'POST',
+                credentials: 'include'
+            });
+        } catch (err) {
+            console.error("[DolphinGIS] Auth: Logout error:", err);
+        } finally {
+            this.clearSession();
+            window.location.reload();
         }
     },
 

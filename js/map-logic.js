@@ -2,8 +2,12 @@
  * DolphinGIS - 地圖核心邏輯
  */
 
-const BASE_URL = 'https://Bobkao0527.github.io/DolphinGIS/tiles'; 
+const BASE_URL = './tiles';
 const TILE_SIZE = 512; 
+const NATIVE_ZOOM = 0;
+const PRELOAD_CONCURRENCY = 4;
+const MAX_PRELOAD_TILES = 32;
+const PRELOAD_CACHE_LIMIT = 64;
 
 let map;
 window.currentDimension = 'overworld';
@@ -72,17 +76,44 @@ function initMap() {
         zoomSnap: 1
     }).setView([0, 0], 0);
 
+    const mapContainer = map.getContainer();
+    let pendingPan = [0, 0];
+    let panFrame = null;
+
+    mapContainer.addEventListener('wheel', (event) => {
+        const isPinch = event.ctrlKey || event.metaKey;
+        const isTrackpad = event.deltaMode === 0 &&
+            (event.deltaX !== 0 || Math.abs(event.deltaY) < 80);
+
+        if (!isTrackpad || isPinch) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        pendingPan[0] += event.deltaX;
+        pendingPan[1] += event.deltaY;
+        if (panFrame === null) {
+            panFrame = requestAnimationFrame(() => {
+                map.panBy(pendingPan, { animate: false });
+                pendingPan = [0, 0];
+                panFrame = null;
+            });
+        }
+    }, { capture: true, passive: false });
+
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
     const MinecraftLayer = L.TileLayer.extend({
         getTileUrl: function(coords) {
-            return `${BASE_URL}/${window.currentDimension}/${coords.x},${coords.y}.png`;
+            return `${BASE_URL}/${window.currentDimension}/${coords.x},${coords.y}.webp`;
         }
     });
 
     const baseLayer = new MinecraftLayer('', {
         tileSize: TILE_SIZE,
         noWrap: true,
+        keepBuffer: 1,
+        updateWhenIdle: false,
+        updateWhenZooming: false,
         maxNativeZoom: 0,
         minNativeZoom: 0,
         maxZoom: 4,
@@ -90,62 +121,119 @@ function initMap() {
     }).addTo(map);
     window.baseLayer = baseLayer;
 
+    const preloadEntries = new Map();
+    let preloadGeneration = 0;
+    let cancelActivePreload = () => {};
+
+    const trimPreloadCache = () => {
+        while (preloadEntries.size > PRELOAD_CACHE_LIMIT) {
+            const oldestKey = preloadEntries.keys().next().value;
+            preloadEntries.delete(oldestKey);
+        }
+    };
+
     window.preloadTilesAt = function(latlng, zoom, padding = 0, timeout = 1200) {
+        cancelActivePreload();
+        const generation = ++preloadGeneration;
+
         return new Promise((resolve) => {
             if (!map || !window.baseLayer) return resolve();
 
-            const centerPoint = map.project(latlng, zoom);
+            // TileLayer only has native tile coordinates at z0. Scale the viewport
+            // down so a high display zoom does not accidentally preload the whole map.
+            const centerPoint = map.project(latlng, NATIVE_ZOOM);
             const centerTileX = Math.floor(centerPoint.x / TILE_SIZE);
             const centerTileY = Math.floor(centerPoint.y / TILE_SIZE);
-
+            const zoomScale = Math.pow(2, Math.max(0, zoom - NATIVE_ZOOM));
             const sizePx = map.getSize();
-            const tilesAcross = Math.ceil(sizePx.x / TILE_SIZE);
-            const tilesDown = Math.ceil(sizePx.y / TILE_SIZE);
+            const halfX = Math.ceil(sizePx.x / zoomScale / TILE_SIZE / 2) + padding;
+            const halfY = Math.ceil(sizePx.y / zoomScale / TILE_SIZE / 2) + padding;
+            const candidates = [];
 
-            const halfX = Math.ceil(tilesAcross / 2) + padding;
-            const halfY = Math.ceil(tilesDown / 2) + padding;
-
-            const urls = [];
             for (let dx = -halfX; dx <= halfX; dx++) {
                 for (let dy = -halfY; dy <= halfY; dy++) {
                     const x = centerTileX + dx;
                     const y = centerTileY + dy;
-                    const url = window.baseLayer.getTileUrl({ x: x, y: y, z: zoom });
-                    if (url) urls.push(url);
+                    const url = window.baseLayer.getTileUrl({ x, y, z: NATIVE_ZOOM });
+                    candidates.push({ url, distance: Math.abs(dx) + Math.abs(dy) });
                 }
             }
 
-            if (urls.length === 0) return resolve();
-
-            let loaded = 0;
-            let finished = false;
-
-            const checkDone = () => {
-                if (finished) return;
-                if (loaded >= urls.length) {
-                    finished = true;
-                    return resolve();
-                }
+            candidates.sort((left, right) => left.distance - right.distance);
+            const urls = [...new Map(candidates.map(candidate => [candidate.url, candidate])).values()]
+                .slice(0, MAX_PRELOAD_TILES);
+            let nextIndex = 0;
+            let active = 0;
+            let settled = false;
+            let centerFinished = false;
+            const activeImages = new Set();
+            const centerUrl = urls[0] && urls[0].url;
+            const cancelImages = () => {
+                activeImages.forEach((image) => {
+                    image.onload = null;
+                    image.onerror = null;
+                    image.src = '';
+                });
+                activeImages.clear();
+            };
+            const finish = () => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timeoutId);
+                cancelImages();
+                if (cancelActivePreload === cancelImages) cancelActivePreload = () => {};
+                resolve();
+            };
+            const timeoutId = setTimeout(finish, timeout);
+            cancelActivePreload = () => {
+                if (!settled) finish();
             };
 
-            const to = setTimeout(() => {
-                if (finished) return;
-                finished = true;
-                return resolve();
-            }, timeout);
+            const pump = () => {
+                if (settled || generation !== preloadGeneration) {
+                    clearTimeout(timeoutId);
+                    finish();
+                    return;
+                }
+                while (active < PRELOAD_CONCURRENCY && nextIndex < urls.length) {
+                    const url = urls[nextIndex++].url;
+                    const cached = preloadEntries.get(url);
+                    if (cached && cached.expiresAt > Date.now()) {
+                        if (url === centerUrl) centerFinished = true;
+                        continue;
+                    }
 
-            urls.forEach(u => {
-                const img = new Image();
-                img.onload = () => {
-                    loaded++;
-                    checkDone();
-                };
-                img.onerror = () => {
-                    loaded++;
-                    checkDone();
-                };
-                img.src = u;
-            });
+                    active++;
+                    const image = new Image();
+                    activeImages.add(image);
+                    image.decoding = 'async';
+                    image.fetchPriority = url === centerUrl ? 'high' : 'low';
+                    const complete = () => {
+                        active--;
+                        activeImages.delete(image);
+                        preloadEntries.delete(url);
+                        preloadEntries.set(url, { expiresAt: Date.now() + 2000 });
+                        trimPreloadCache();
+                        if (url === centerUrl) {
+                            centerFinished = true;
+                            finish();
+                        } else if (nextIndex >= urls.length && active === 0) {
+                            finish();
+                        } else {
+                            pump();
+                        }
+                        image.onload = null;
+                        image.onerror = null;
+                        image.src = '';
+                    };
+                    image.onload = complete;
+                    image.onerror = complete;
+                    image.src = url;
+                }
+                if (centerFinished || (nextIndex >= urls.length && active === 0)) finish();
+            };
+
+            pump();
         });
     };
 

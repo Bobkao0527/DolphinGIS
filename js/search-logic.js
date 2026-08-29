@@ -15,6 +15,15 @@ const DIM_ZH_NAMES = {
     'survival': '生存'
 };
 
+function resolveSafeY(rawY, dim = 'overworld') {
+    const value = Number(rawY);
+    if (Number.isFinite(value)) return value;
+
+    const lower = String(dim || 'overworld').toLowerCase();
+    if (lower.includes('nether') || lower.includes('end')) return 120;
+    return 120;
+}
+
 function getBuildingDimension(id) {
     if (!id) return 'overworld';
     const prefix = id.trim().toUpperCase().substring(0, 3);
@@ -71,7 +80,7 @@ async function fetchBuildingData() {
                     y = parseFloat(parts[1]);
                     z = parseFloat(parts[2]);
                 } else if (parts.length === 2) {
-                    // 若只有 X, Z 軸，預設以 120 為高度 fallback
+                    // 若只有 X, Z 軸，保留高處安全落點，避免直接窒息
                     x = parseFloat(parts[0]);
                     y = 120;
                     z = parseFloat(parts[1]);
@@ -99,7 +108,7 @@ function getPlayerSearchResults(query) {
                 type: 'player',
                 name: player.name,
                 x: player.x,
-                y: player.y !== undefined ? player.y : 120,
+                y: resolveSafeY(player.y, player.dim),
                 z: player.z,
                 dim: player.dim, 
                 displayName: player.name,

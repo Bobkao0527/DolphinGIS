@@ -103,7 +103,7 @@ const tracker = {
                     switchMapDimension(player.dim);
                 }
                 if (typeof map !== 'undefined' && player.x != null && player.z != null) {
-                    const playerY = player.y !== undefined ? player.y : 120;
+                    const playerY = Number.isFinite(Number(player.y)) ? Number(player.y) : 120;
                     goToLocation(player.x, playerY, player.z, player.name, '在線玩家', '在線玩家', player.name, player.dim);
                 }
                 const panel = document.getElementById('player-menu-panel');
@@ -140,7 +140,7 @@ const tracker = {
                             this.onlinePlayers[playerName] = {
                                 name: playerName,
                                 x: p.x,
-                                y: p.y !== undefined ? p.y : 120, // 儲存玩家高度 (若 API 有傳回)
+                                y: Number.isFinite(Number(p.y)) ? Number(p.y) : 120,
                                 z: p.z,
                                 ts: p.ts,
                                 dim: resolvedDim, 

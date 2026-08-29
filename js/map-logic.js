@@ -249,10 +249,10 @@ function initMap() {
         }
     });
 
-    // 點擊地圖產生標記 (支援 3D 規格坐落點，預設高度為 120)
+    // 點擊地圖產生標記：保留高空落點，避免直接窒息
     map.on('click', function(e) {
         const x = Math.round(e.latlng.lng);
-        const y = 120; 
+        const y = 120;
         const z = Math.round(-e.latlng.lat);
         const content = `
             <div style="min-width: 140px;">

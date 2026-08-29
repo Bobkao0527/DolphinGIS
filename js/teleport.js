@@ -29,6 +29,12 @@ const teleportSystem = {
         return `custom:${lower}`;
     },
 
+    getSafeTeleportY(y, dim = 'overworld') {
+        const parsed = Number(y);
+        if (Number.isFinite(parsed)) return Math.round(parsed);
+        return 120;
+    },
+
     /**
      * 發送 RCON 傳送指令至中繼 Workers 代理
      */
@@ -43,9 +49,8 @@ const teleportSystem = {
         const username = window.authSystem.getUsername();
         const dimNamespace = this.getMinecraftDimensionID(dim);
         
-        // 解析 Y 軸數值，若無 Y 軸資料則默認以 120 落地高空安全降落
-        const targetY = (y !== undefined && y !== null && !isNaN(y)) ? Math.round(y) : 120;
-        const compiledCommand = `execute in ${dimNamespace} run tp ${username} ${Math.round(x)} ${targetY} ${Math.round(z)}`;
+        const targetY = this.getSafeTeleportY(y, dim);
+        const compiledCommand = `execute in ${dimNamespace} run tp ${username} ${Math.round(x)} ${targetY} ${Math.round(z)}; effect give ${username} minecraft:slow_falling 5 0 true`;
 
         console.log(`[DolphinGIS] Teleport Command: ${compiledCommand}`);
         this.showNotification(`正在呼叫傳送指令...`, "info");

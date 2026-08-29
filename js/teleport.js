@@ -10,6 +10,36 @@ const teleportSystem = {
     init() {
         console.log("[DolphinGIS] Teleport: System initialized.");
         this.bindGlobalPopupWatcher();
+        document.addEventListener('auth-success', () => this.syncAllTeleportButtons());
+    },
+
+    syncButtonState(btn) {
+        if (!btn) return;
+
+        const x = parseFloat(btn.getAttribute('data-x'));
+        const y = parseFloat(btn.getAttribute('data-y'));
+        const z = parseFloat(btn.getAttribute('data-z'));
+        const dim = btn.getAttribute('data-dim');
+
+        if (!window.authSystem || !window.authSystem.isLoggedIn()) {
+            btn.disabled = true;
+            btn.innerText = "🔒 登入解鎖傳送";
+            btn.onclick = null;
+            return;
+        }
+
+        btn.disabled = false;
+        btn.innerText = "⚡️ 傳送";
+        btn.onclick = (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            this.teleportTo(x, y, z, dim);
+        };
+    },
+
+    syncAllTeleportButtons() {
+        const buttons = document.querySelectorAll('.teleport-btn');
+        buttons.forEach((btn) => this.syncButtonState(btn));
     },
 
     /**
@@ -48,32 +78,51 @@ const teleportSystem = {
 
         const username = window.authSystem.getUsername();
         const dimNamespace = this.getMinecraftDimensionID(dim);
-        
         const targetY = this.getSafeTeleportY(y, dim);
-        const compiledCommand = `execute in ${dimNamespace} run tp ${username} ${Math.round(x)} ${targetY} ${Math.round(z)}; effect give ${username} minecraft:slow_falling 5 0 true`;
+        const tpCommand = `execute in ${dimNamespace} run tp ${username} ${Math.round(x)} ${targetY} ${Math.round(z)}`;
+        const effectCommand = `effect give ${username} minecraft:slow_falling 5 0 true`;
 
-        console.log(`[DolphinGIS] Teleport Command: ${compiledCommand}`);
+        console.log(`[DolphinGIS] Teleport Command: ${tpCommand}`);
+        console.log(`[DolphinGIS] Teleport Effect Command: ${effectCommand}`);
         this.showNotification(`正在呼叫傳送指令...`, "info");
         this.setButtonLoadingState(true);
 
         try {
-            const response = await fetch(COMMAND_GATEWAY, {
+            const tpResponse = await fetch(COMMAND_GATEWAY, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    command: compiledCommand
+                    command: tpCommand
                 })
             });
 
-            const data = await response.json();
+            const tpData = await tpResponse.json();
 
-            if (data && data.success) {
+            if (!(tpData && tpData.success)) {
+                const errorMsg = tpData?.error || "傳送執行失敗。";
+                this.showNotification(`傳送失敗: ${errorMsg}`, "error");
+                return;
+            }
+
+            const effectResponse = await fetch(COMMAND_GATEWAY, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    command: effectCommand
+                })
+            });
+
+            const effectData = await effectResponse.json();
+
+            if (effectData && effectData.success) {
                 this.showNotification(`傳送成功！抵達 [${dim.toUpperCase()}] X: ${Math.round(x)}, Y: ${targetY}, Z: ${Math.round(z)}`, "success");
             } else {
-                const errorMsg = data.error || "傳送執行失敗。";
-                this.showNotification(`傳送失敗: ${errorMsg}`, "error");
+                const effectError = effectData?.error || "效果附加失敗，但傳送已執行。";
+                this.showNotification(`傳送已完成，但附加效果失敗: ${effectError}`, "warning");
             }
         } catch (error) {
             console.error("[DolphinGIS] Teleport request failed:", error);
@@ -96,23 +145,7 @@ const teleportSystem = {
             const tpBtn = popupNode.querySelector('.teleport-btn');
             if (!tpBtn) return;
 
-            const x = parseFloat(tpBtn.getAttribute('data-x'));
-            const y = parseFloat(tpBtn.getAttribute('data-y'));
-            const z = parseFloat(tpBtn.getAttribute('data-z'));
-            const dim = tpBtn.getAttribute('data-dim');
-
-            if (window.authSystem && window.authSystem.isLoggedIn()) {
-                tpBtn.disabled = false;
-                tpBtn.innerText = "⚡️ 傳送";
-                
-                tpBtn.onclick = (event) => {
-                    event.preventDefault();
-                    this.teleportTo(x, y, z, dim);
-                };
-            } else {
-                tpBtn.disabled = true;
-                tpBtn.innerText = "🔒 登入解鎖傳送";
-            }
+            this.syncButtonState(tpBtn);
         });
     },
 
@@ -123,11 +156,9 @@ const teleportSystem = {
             if (loading) {
                 btn.disabled = true;
                 btn.innerText = "傳送中...";
+                btn.onclick = null;
             } else {
-                if (window.authSystem && window.authSystem.isLoggedIn()) {
-                    btn.disabled = false;
-                    btn.innerText = "⚡️ 傳送";
-                }
+                this.syncButtonState(btn);
             }
         });
     },

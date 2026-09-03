@@ -2,7 +2,7 @@
  * DolphinGIS - 玩家即時定位系統
  */
 
-const API_URL = "https://mega-petition-winners-oasis.trycloudflare.com/players.json";
+const API_URL = "https://server-mc-tunnel.greendolphin.dpdns.org/players.json";
 
 const tracker = {
     playerMarkers: {},

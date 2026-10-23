@@ -2,7 +2,7 @@
  * DolphinGIS - 即時傳送系統 (支援 X, Y, Z 多維度安全傳送)
  */
 
-const COMMAND_GATEWAY = "https://servercommand.bobkao0527.workers.dev/command";
+const COMMAND_GATEWAY = "https://sso.greendolphin.dpdns.org/api/command/teleport";
 
 const teleportSystem = {
     isSending: false,
@@ -66,7 +66,8 @@ const teleportSystem = {
     },
 
     /**
-     * 發送 RCON 傳送指令至中繼 Workers 代理
+     * 發送安全 Action 傳送請求至 SSO Pages 安全網關
+     * 由伺服端強制自 JWT 綁定身分，原子化觸發多維度傳送與 5 秒防摔緩降保護
      */
     async teleportTo(x, y, z, dim) {
         if (this.isSending) return;
@@ -76,53 +77,47 @@ const teleportSystem = {
             return;
         }
 
-        const username = window.authSystem.getUsername();
-        const dimNamespace = this.getMinecraftDimensionID(dim);
         const targetY = this.getSafeTeleportY(y, dim);
-        const tpCommand = `execute in ${dimNamespace} run tp ${username} ${Math.round(x)} ${targetY} ${Math.round(z)}`;
-        const effectCommand = `effect give ${username} minecraft:slow_falling 5 0 true`;
+        const normalizedDim = dim || 'overworld';
 
-        console.log(`[DolphinGIS] Teleport Command: ${tpCommand}`);
-        console.log(`[DolphinGIS] Teleport Effect Command: ${effectCommand}`);
+        console.log(`[DolphinGIS] 正在發送安全 Action 傳送請求: [${normalizedDim}] (${Math.round(x)}, ${targetY}, ${Math.round(z)})`);
         this.showNotification(`正在呼叫傳送指令...`, "info");
         this.setButtonLoadingState(true);
 
         try {
-            const tpResponse = await fetch(COMMAND_GATEWAY, {
+            const nonce = (window.crypto && typeof crypto.randomUUID === 'function')
+                ? crypto.randomUUID()
+                : ('nonce-' + Date.now() + '-' + Math.random().toString(36).slice(2));
+
+            const headers = {
+                'Content-Type': 'application/json',
+                'X-GD-Timestamp': Date.now().toString(),
+                'X-GD-Nonce': nonce
+            };
+
+            const payload = {
+                action: 'teleport',
+                x: Math.round(x),
+                y: targetY,
+                z: Math.round(z),
+                dim: normalizedDim,
+                applySlowFalling: true
+            };
+
+            const response = await fetch(COMMAND_GATEWAY, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    command: tpCommand
-                })
+                headers,
+                credentials: 'include',
+                body: JSON.stringify(payload)
             });
 
-            const tpData = await tpResponse.json();
+            const data = await response.json();
 
-            if (!(tpData && tpData.success)) {
-                const errorMsg = tpData?.error || "傳送執行失敗。";
-                this.showNotification(`傳送失敗: ${errorMsg}`, "error");
-                return;
-            }
-
-            const effectResponse = await fetch(COMMAND_GATEWAY, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    command: effectCommand
-                })
-            });
-
-            const effectData = await effectResponse.json();
-
-            if (effectData && effectData.success) {
-                this.showNotification(`傳送成功！抵達 [${dim.toUpperCase()}] X: ${Math.round(x)}, Y: ${targetY}, Z: ${Math.round(z)}`, "success");
+            if (response.ok && data && data.success) {
+                this.showNotification(`傳送成功！抵達 [${normalizedDim.toUpperCase()}] X: ${Math.round(x)}, Y: ${targetY}, Z: ${Math.round(z)}（已自動附加防摔保護）`, "success");
             } else {
-                const effectError = effectData?.error || "效果附加失敗，但傳送已執行。";
-                this.showNotification(`傳送已完成，但附加效果失敗: ${effectError}`, "warning");
+                const errorMsg = data?.error?.message || data?.error || "傳送執行失敗。";
+                this.showNotification(`傳送失敗: ${errorMsg}`, "error");
             }
         } catch (error) {
             console.error("[DolphinGIS] Teleport request failed:", error);

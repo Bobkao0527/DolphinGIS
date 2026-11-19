@@ -165,6 +165,9 @@ const tracker = {
                 });
 
                 this.renderPlayerMenu();
+                if (window.dolphin3D && typeof window.dolphin3D.refreshPlayers === 'function') {
+                    window.dolphin3D.refreshPlayers();
+                }
 
             } catch (error) {
                 console.error("[DolphinGIS] 同步失敗:", error);

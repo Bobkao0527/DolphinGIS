@@ -55,8 +55,16 @@ function switchMapDimension(rawDim, triggerUI = true) {
         window.baseLayer.redraw();
     }
 
+    if (map && typeof map.closePopup === 'function') {
+        map.closePopup();
+    }
+
     if (typeof tracker !== 'undefined' && typeof tracker.refreshPlayersVisibility === 'function') {
         tracker.refreshPlayersVisibility();
+    }
+
+    if (window.dolphin3D && typeof window.dolphin3D.onDimensionChanged === 'function') {
+        window.dolphin3D.onDimensionChanged(dim);
     }
 }
 
@@ -75,6 +83,7 @@ function initMap() {
         inertia: true,
         zoomSnap: 1
     }).setView([0, 0], 0);
+    window.leafletMap = map;
 
     const mapContainer = map.getContainer();
     let pendingPan = [0, 0];
@@ -260,9 +269,39 @@ function initMap() {
                 <div style="font-size: 11px; color: var(--player-accent); margin-top: 2px;">維度: ${window.currentDimension}</div>
                 <div style="font-family: monospace; font-size: 12px; margin-top: 5px; border-top: 1px solid #444; padding-top: 3px; margin-bottom: 5px;">X: ${x}<br>Y: ${y}<br>Z: ${z}</div>
                 <button class="teleport-btn" data-x="${x}" data-y="${y}" data-z="${z}" data-dim="${window.currentDimension}" disabled>載入驗證中...</button>
+                <button class="enter-3d-btn" data-x="${x}" data-y="${y}" data-z="${z}" data-dim="${window.currentDimension}" data-name="地圖標記">🧊 3D 檢視</button>
             </div>
         `;
         L.popup().setLatLng(e.latlng).setContent(content).openOn(map);
+    });
+
+    document.addEventListener('click', (event) => {
+        const btn = event.target.closest('.enter-3d-btn');
+        if (!btn) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const tx = parseFloat(btn.getAttribute('data-x'));
+        const ty = parseFloat(btn.getAttribute('data-y'));
+        const tz = parseFloat(btn.getAttribute('data-z'));
+        const tdim = btn.getAttribute('data-dim') || window.currentDimension || 'overworld';
+        const tname = btn.getAttribute('data-name') || '定位點';
+        if (window.dolphin3D && typeof window.dolphin3D.enter3D === 'function') {
+            window.dolphin3D.enter3D({
+                dim: tdim,
+                x: tx,
+                y: ty,
+                z: tz,
+                card: {
+                    badge: `[${tdim.toUpperCase()}] 定位座標`,
+                    title: tname,
+                    addr: '',
+                    x: tx,
+                    y: ty,
+                    z: tz,
+                    dim: tdim
+                }
+            });
+        }
     });
 
     map.on('mousedown', () => {

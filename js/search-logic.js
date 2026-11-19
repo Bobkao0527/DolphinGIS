@@ -93,6 +93,9 @@ async function fetchBuildingData() {
             loader.innerHTML = `已同步 ${buildingData.length} 筆建物資料`;
             setTimeout(() => loader.style.display = 'none', 3000);
         }
+        if (window.dolphin3D && typeof window.dolphin3D.refreshBuildings === 'function') {
+            window.dolphin3D.refreshBuildings();
+        }
     } catch (error) {
         if (loader) loader.innerHTML = "資料同步失敗";
     }
@@ -233,11 +236,29 @@ function showResultsList(results) {
     });
 }
 
-// 導航跳轉 (帶入 X, Y, Z 三維數據，並調整按鈕簡化為「傳送」)
+// 導航跳轉 (帶入 X, Y, Z 三維數據，並支援 2D/3D 模式分流與按鈕聯動)
+window.getBuildingData = () => buildingData;
+window.getBuildingDimension = getBuildingDimension;
+
 async function goToLocation(x, y, z, name, addr = "", type = "", id = "", dim = "overworld") {
-    const targetLatLng = L.latLng(-z, x);
     const list = document.getElementById('results-list');
     if (list) list.style.display = 'none';
+
+    const dimDisplay = DIM_ZH_NAMES[dim] || dim.toUpperCase();
+    if (window.dolphin3D && typeof window.dolphin3D.isActive === 'function' && window.dolphin3D.isActive()) {
+        window.dolphin3D.flyTo(x, y, z, dim, {
+            badge: `[${dimDisplay}] ${type || '建物'} ${id ? '#' + id : ''}`,
+            title: name || '定位點',
+            addr: addr || '',
+            x,
+            y,
+            z,
+            dim
+        });
+        return;
+    }
+
+    const targetLatLng = L.latLng(-z, x);
 
     const desiredZoom = 4;
     try {
@@ -251,7 +272,6 @@ async function goToLocation(x, y, z, name, addr = "", type = "", id = "", dim = 
     map.flyTo(targetLatLng, desiredZoom, { animate: true, duration: 1.2 });
 
     setTimeout(() => {
-        const dimDisplay = DIM_ZH_NAMES[dim] || dim.toUpperCase();
         const content = `
             <div style="min-width: 140px;">
                 <div style="font-size: 10px; color: #55ff55; margin-bottom: 2px;">
@@ -263,6 +283,7 @@ async function goToLocation(x, y, z, name, addr = "", type = "", id = "", dim = 
                     X: ${Math.round(x)}, Y: ${Math.round(y)}, Z: ${Math.round(z)}
                 </div>
                 <button class="teleport-btn" data-x="${x}" data-y="${y}" data-z="${z}" data-dim="${dim}" disabled>載入驗證中...</button>
+                <button class="enter-3d-btn" data-x="${x}" data-y="${y}" data-z="${z}" data-dim="${dim}" data-name="${(name || '定位點').replace(/"/g, '&quot;')}">🧊 3D 檢視</button>
             </div>
         `;
         L.popup().setLatLng(targetLatLng).setContent(content).openOn(map);

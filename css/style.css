@@ -430,3 +430,276 @@ body, html {
 .leaflet-popup-content-wrapper { background: var(--ui-panel); color: #fff; border: 1px solid var(--border); border-radius: 4px; }
 .leaflet-popup-tip { background: var(--ui-panel); }
 .leaflet-tooltip-pane { z-index: 650; }
+
+/* --- 3D 整合檢視器與切換按鈕 --- */
+#map-3d {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 10;
+    overflow: hidden;
+}
+
+#labels-3d-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 20;
+}
+
+#toggle-3d-wrap {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1200;
+}
+
+.toggle-3d-btn {
+    background: var(--ui-panel);
+    color: var(--accent);
+    border: 1px solid rgba(85, 255, 85, 0.55);
+    border-radius: 8px;
+    padding: 9px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(6px);
+    transition: all 0.18s ease;
+}
+
+.toggle-3d-btn:hover {
+    background: rgba(85, 255, 85, 0.18);
+    transform: translateY(-1px);
+}
+
+.toggle-3d-btn.is-3d {
+    background: var(--accent);
+    color: #0b0b0b;
+    border-color: var(--accent);
+}
+
+.panel-3d {
+    position: fixed;
+    top: 66px;
+    right: 20px;
+    width: 300px;
+    max-height: calc(100vh - 96px);
+    overflow-y: auto;
+    z-index: 1150;
+    background: var(--ui-panel);
+    color: var(--text-color);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    flex-direction: column;
+    gap: 6px;
+}
+
+.panel3d-status { font-size: 11px; color: #b9c5d1; }
+.panel3d-progress {
+    width: 100%;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    overflow: hidden;
+}
+#progress3d-fill {
+    width: 0%;
+    height: 100%;
+    background: linear-gradient(90deg, #2fb84f, var(--accent));
+    transition: width 0.2s ease;
+}
+
+.stat3d-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-top: 2px;
+}
+.stat3d-box {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    padding: 5px 8px;
+}
+.stat3d-label { font-size: 10px; color: rgba(255, 255, 255, 0.55); }
+.stat3d-val {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #fff;
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+}
+.stat3d-val.good { color: var(--accent); }
+.stat3d-val.warn { color: var(--player-accent); }
+.stat3d-val.low { color: #ff6b6b; }
+
+.panel3d-sec {
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.55);
+    margin-top: 4px;
+}
+
+.panel3d-btns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+.panel3d-btns button {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: #eee;
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 11px;
+    cursor: pointer;
+}
+.panel3d-btns button:hover {
+    background: var(--hover-bg);
+    border-color: var(--accent);
+}
+.panel3d-btns button.active {
+    background: #27a959;
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 600;
+}
+
+.panel3d-slider {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: #cfd9e3;
+    margin-top: 2px;
+}
+.panel3d-slider input[type="range"] {
+    flex: 1;
+    accent-color: var(--accent);
+}
+
+.panel3d-tp-btn {
+    margin-top: 4px;
+    width: 100%;
+    padding: 7px 10px;
+    background: rgba(255, 204, 0, 0.16);
+    border: 1px solid var(--player-accent);
+    color: var(--player-accent);
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.panel3d-tp-btn:hover {
+    background: var(--player-accent);
+    color: #000;
+}
+
+.panel3d-hint {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.48);
+    text-align: center;
+    margin-top: 2px;
+}
+
+.label-3d-building {
+    position: absolute;
+    pointer-events: auto;
+    cursor: pointer;
+    transform: translate(-50%, -100%);
+    background: rgba(15, 18, 22, 0.88);
+    border: 1px solid rgba(85, 255, 85, 0.6);
+    color: #f0f6fc;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 999px;
+    white-space: nowrap;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.55);
+}
+.label-3d-building:hover {
+    background: var(--accent);
+    color: #0b0b0b;
+}
+
+.label-3d-player {
+    position: absolute;
+    pointer-events: auto;
+    cursor: pointer;
+    transform: translate(-50%, -100%);
+    align-items: center;
+    gap: 5px;
+    background: rgba(15, 18, 22, 0.9);
+    border: 1px solid var(--player-accent);
+    color: var(--player-accent);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px 2px 3px;
+    border-radius: 999px;
+    white-space: nowrap;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.6);
+}
+.label-3d-player img {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    image-rendering: pixelated;
+}
+
+.popup-3d {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    min-width: 220px;
+    max-width: 320px;
+    z-index: 1250;
+    background: var(--ui-panel);
+    border: 1px solid rgba(85, 255, 85, 0.45);
+    border-radius: 8px;
+    padding: 12px 14px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.7);
+    color: #fff;
+}
+.popup3d-close {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.6);
+    cursor: pointer;
+    font-size: 13px;
+}
+.popup3d-badge { font-size: 10px; color: var(--accent); margin-bottom: 3px; }
+.popup3d-title { font-size: 14px; font-weight: 700; color: var(--accent); }
+.popup3d-addr { font-size: 12px; opacity: 0.78; margin: 4px 0; }
+.popup3d-xyz {
+    font-family: 'Consolas', monospace;
+    font-size: 11px;
+    border-top: 1px solid #444;
+    padding-top: 5px;
+    margin: 5px 0 8px;
+}
+
+.enter-3d-btn {
+    margin-top: 6px;
+    width: 100%;
+    padding: 6px 8px;
+    border-radius: 4px;
+    border: 1px solid rgba(85, 255, 85, 0.55);
+    background: rgba(85, 255, 85, 0.14);
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.enter-3d-btn:hover {
+    background: var(--accent);
+    color: #0b0b0b;
+}

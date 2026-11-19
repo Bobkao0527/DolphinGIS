@@ -8,6 +8,14 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <!-- 專案樣式 -->
     <link rel="stylesheet" href="css/style.css" />
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+            }
+        }
+    </script>
 </head>
 <body>
 
@@ -76,6 +84,66 @@
 
     <!-- 地圖容器 -->
     <div id="map"></div>
+    <div id="map-3d" style="display: none;">
+        <div id="labels-3d-layer"></div>
+    </div>
+
+    <!-- 右上角 2D/3D 切換與 3D 引擎控制面板 -->
+    <div id="toggle-3d-wrap">
+        <button id="toggle-3d-btn" class="toggle-3d-btn" type="button">🧊 切換 3D 實景</button>
+    </div>
+
+    <div id="panel-3d" class="panel-3d" style="display: none;">
+        <div id="load3d-status" class="panel3d-status">準備連線 3D 節點...</div>
+        <div class="panel3d-progress"><div id="progress3d-fill"></div></div>
+        <div class="stat3d-grid">
+            <div class="stat3d-box"><span class="stat3d-label">FPS / 省電</span><div id="stat3d-fps" class="stat3d-val good">--</div></div>
+            <div class="stat3d-box"><span class="stat3d-label">三角形 / Calls</span><div id="stat3d-tris" class="stat3d-val">--</div></div>
+            <div class="stat3d-box"><span class="stat3d-label">顯示 / 快取 / 總塊</span><div id="stat3d-tiles" class="stat3d-val">--</div></div>
+            <div class="stat3d-box"><span class="stat3d-label">傳輸 / VRAM</span><div id="stat3d-size" class="stat3d-val">--</div></div>
+        </div>
+        <div class="panel3d-sec">算光與著色</div>
+        <div class="panel3d-btns" id="mode3d-buttons">
+            <button data-mode="unlit" class="active">純免算光 AO</button>
+            <button data-mode="sun">＋太陽光</button>
+            <button data-mode="wireframe">線框</button>
+        </div>
+        <div class="panel3d-btns" style="margin-top: 6px;">
+            <button id="toggle3d-translucent" class="active">玻璃水體：開</button>
+            <button id="toggle3d-buildings" class="active">建物標籤：開</button>
+            <button id="toggle3d-powersave" class="active">靜止省電：開</button>
+        </div>
+        <div class="panel3d-slider">
+            <span>視距半徑</span>
+            <input id="radius3d-slider" type="range" min="200" max="1100" step="50" value="380" />
+            <span id="radius3d-val">380 格</span>
+        </div>
+        <div id="nether3d-cut-box" style="display: none;">
+            <div class="panel3d-sec">地獄基岩透視（Y 軸）</div>
+            <div class="panel3d-btns" id="ncut3d-buttons">
+                <button data-ncut="roof" class="active">雙層透視</button>
+                <button data-ncut="clip">基岩下剖面</button>
+                <button data-ncut="full">完整全高</button>
+            </div>
+            <div class="panel3d-slider" id="yclip3d-row" style="display: none;">
+                <span>剖面上限</span>
+                <input id="yclip3d-slider" type="range" min="32" max="176" step="2" value="112" />
+                <span id="yclip3d-val">Y ≤ 112</span>
+            </div>
+        </div>
+        <button id="tp-3d-target-btn" class="panel3d-tp-btn" type="button">⚡️ 傳送至目前準心目標</button>
+        <div class="panel3d-hint">左鍵旋轉 ｜ 右鍵平移 ｜ 滾輪縮放 ｜ WASD 飛行</div>
+    </div>
+
+    <!-- 3D 模式建物 / 玩家資訊卡 -->
+    <div id="popup-3d" class="popup-3d" style="display: none;">
+        <button id="popup3d-close" class="popup3d-close" type="button">✕</button>
+        <div id="popup3d-badge" class="popup3d-badge"></div>
+        <div id="popup3d-title" class="popup3d-title"></div>
+        <div id="popup3d-addr" class="popup3d-addr"></div>
+        <div id="popup3d-xyz" class="popup3d-xyz"></div>
+        <button id="popup3d-tp-btn" class="teleport-btn" disabled>載入驗證中...</button>
+    </div>
     
     <!-- 座標顯示與當前維度 -->
     <div class="coord-display" id="coords">
@@ -94,10 +162,12 @@
 
     <!-- 腳本引用 -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="js/config-3d.js"></script>
     <script src="js/login.js"></script>
     <script src="js/teleport.js"></script>
     <script src="js/map-logic.js"></script>
     <script src="js/search-logic.js"></script>
     <script src="js/tracker-logic.js"></script>
+    <script src="js/loader-3d.js"></script>
 </body>
 </html>

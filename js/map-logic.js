@@ -43,7 +43,7 @@ function switchMapDimension(rawDim, triggerUI = true) {
 
     const dimTextEl = document.getElementById('current-dim-text');
     if (dimTextEl) {
-        dimTextEl.innerText = `DIMENSION: ${dim.toUpperCase()}`;
+        dimTextEl.textContent = `DIMENSION: ${dim.toUpperCase()}`;
     }
 
     if (triggerUI) {

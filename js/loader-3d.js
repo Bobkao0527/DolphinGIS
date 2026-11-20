@@ -21,7 +21,7 @@
     if (!realEnginePromise) {
       isLoadingEngine = true;
       setToggleButtonLoading(true);
-      realEnginePromise = import("./viewer-3d.js")
+      realEnginePromise = import("./viewer-3d.js?v=20261120-ui3")
         .then((mod) => mod.default || window.dolphin3D)
         .catch((err) => {
           realEnginePromise = null;

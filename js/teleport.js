@@ -11,6 +11,7 @@ const teleportSystem = {
         console.log("[DolphinGIS] Teleport: System initialized.");
         this.bindGlobalPopupWatcher();
         document.addEventListener('auth-success', () => this.syncAllTeleportButtons());
+        document.addEventListener('auth-state-change', () => this.syncAllTeleportButtons());
     },
 
     syncButtonState(btn) {
@@ -119,7 +120,7 @@ const teleportSystem = {
 
     bindGlobalPopupWatcher() {
         if (typeof map === 'undefined') {
-            setTimeout(() => this.bindGlobalPopupWatcher(), 300);
+            setTimeout(() => this.bindGlobalPopupWatcher(), 150);
             return;
         }
 
@@ -189,7 +190,5 @@ const teleportSystem = {
 window.teleportSystem = teleportSystem;
 
 document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(() => {
-        teleportSystem.init();
-    }, 1200);
+    teleportSystem.init();
 });

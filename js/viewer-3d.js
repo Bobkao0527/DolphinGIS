@@ -4,7 +4,9 @@
  */
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { pickVoxelTerrain } from "./raycast-3d.js";
+import { pickVoxelTerrain } from "./raycast-3d.js?v=20261120-ui3";
+import { formatBlockDisplayName } from "./block-names-zh.js?v=20261120-ui3";
+import { VoxelAnalyzer3D } from "./voxel-analyzer-3d.js?v=20261120-ui3";
 
 const VERTEX_SHADER = `
   in uint aCornerId;
@@ -13,11 +15,12 @@ const VERTEX_SHADER = `
   uniform vec3 uTileOffset;
   uniform float uSunMode;
   uniform vec3 uSunDir;
-  uniform float uWorldOriginY;
+  uniform vec3 uWorldOrigin;
 
   out vec4 vColor;
   out float vFogDepth;
   out float vWorldY;
+  out vec3 vWorldPos;
 
   const float FACE_SHADES[6] = float[6](1.00, 0.52, 0.84, 0.78, 0.70, 0.64);
   const float AO_CURVE[4] = float[4](0.58, 0.74, 0.88, 1.00);
@@ -104,7 +107,8 @@ const VERTEX_SHADER = `
     }
 
     vColor = vec4(clamp(baseCol.rgb * factor, 0.0, 1.0), baseCol.a);
-    vWorldY = pos.y + uWorldOriginY;
+    vWorldPos = pos + uWorldOrigin;
+    vWorldY = vWorldPos.y;
     vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
     vFogDepth = -mvPos.z;
     gl_Position = projectionMatrix * mvPos;
@@ -115,10 +119,18 @@ const FRAGMENT_SHADER = `
   in vec4 vColor;
   in float vFogDepth;
   in float vWorldY;
+  in vec3 vWorldPos;
   uniform vec3 uFogColor;
   uniform float uFogDensity;
   uniform float uCutMode;
   uniform float uClipY;
+  uniform float uTerrainAlpha;
+  uniform float uCtClipAxis;
+  uniform float uCtClipVal;
+  uniform float uCtClipDir;
+  uniform float uCtClipScope;
+  uniform vec3 uCtBoxMin;
+  uniform vec3 uCtBoxMax;
   out vec4 outColor;
 
   void main() {
@@ -127,9 +139,26 @@ const FRAGMENT_SHADER = `
     } else if (uCutMode >= 1.5) {
       if (vWorldY > uClipY) discard;
     }
+    if (uCtClipAxis > 0.5) {
+      bool inScope = true;
+      if (uCtClipScope > 0.5) {
+        bool inX = vWorldPos.x >= uCtBoxMin.x && vWorldPos.x <= uCtBoxMax.x;
+        bool inY = vWorldPos.y >= uCtBoxMin.y && vWorldPos.y <= uCtBoxMax.y;
+        bool inZ = vWorldPos.z >= uCtBoxMin.z && vWorldPos.z <= uCtBoxMax.z;
+        if (uCtClipAxis < 1.5) {
+          inScope = inX && inZ && (uCtClipDir > 0.0 ? vWorldPos.y >= uCtBoxMin.y : vWorldPos.y <= uCtBoxMax.y);
+        } else {
+          inScope = inX && inY && inZ;
+        }
+      }
+      if (inScope) {
+        float coordVal = (uCtClipAxis < 1.5) ? vWorldPos.y : (uCtClipAxis < 2.5 ? vWorldPos.x : vWorldPos.z);
+        if (uCtClipDir > 0.0 ? (coordVal > uCtClipVal) : (coordVal < uCtClipVal)) discard;
+      }
+    }
     float fogFactor = 1.0 - exp(-uFogDensity * uFogDensity * vFogDepth * vFogDepth);
     vec3 col = mix(vColor.rgb, uFogColor, clamp(fogFactor, 0.0, 1.0));
-    outColor = linearToOutputTexel(vec4(col, vColor.a));
+    outColor = linearToOutputTexel(vec4(col, vColor.a * uTerrainAlpha));
   }
 `;
 
@@ -148,6 +177,7 @@ class Dolphin3DEngine {
     this.worldOrigin = [-832, 58, 320];
 
     this.renderMode = "unlit";
+    this.terrainDisplayMode = "normal";
     this.showTranslucent = true;
     this.showBuildings = true;
     this.powerSave = true;
@@ -155,6 +185,7 @@ class Dolphin3DEngine {
     this.cullRadius = 380;
     this.netherCutMode = "roof";
     this.netherClipY = 112;
+    this.voxelAnalyzer = null;
 
     this.tileEntries = [];
     this.manifestData = null;
@@ -201,6 +232,23 @@ class Dolphin3DEngine {
     this.rightVec = new THREE.Vector3();
   }
 
+  getViewportSize() {
+    const w = this.containerEl?.clientWidth || window.innerWidth;
+    const h = this.containerEl?.clientHeight || window.innerHeight;
+    return {
+      width: Math.max(1, w),
+      height: Math.max(1, h),
+    };
+  }
+
+  syncViewportSize() {
+    if (!this.initialized || !this.renderer || !this.camera) return;
+    const { width, height } = this.getViewportSize();
+    this.camera.aspect = width / height;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(width, height);
+  }
+
   ensureInitialized() {
     if (this.initialized) return;
     this.initialized = true;
@@ -217,9 +265,10 @@ class Dolphin3DEngine {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x9bc7f2);
 
+    const vp = this.getViewportSize();
     this.camera = new THREE.PerspectiveCamera(
       52,
-      window.innerWidth / window.innerHeight,
+      vp.width / vp.height,
       0.5,
       5000
     );
@@ -229,7 +278,7 @@ class Dolphin3DEngine {
       antialias: true,
       powerPreference: "high-performance",
     });
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setSize(vp.width, vp.height);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.containerEl.prepend(this.renderer.domElement);
@@ -246,9 +295,16 @@ class Dolphin3DEngine {
       uSunDir: { value: sunDir },
       uFogColor: { value: this.scene.background.clone() },
       uFogDensity: { value: 0.00055 },
-      uWorldOriginY: { value: 58.0 },
+      uWorldOrigin: { value: new THREE.Vector3(...this.worldOrigin) },
       uCutMode: { value: 0.0 },
       uClipY: { value: 112.0 },
+      uTerrainAlpha: { value: 1.0 },
+      uCtClipAxis: { value: 0.0 },
+      uCtClipVal: { value: 0.0 },
+      uCtClipDir: { value: 1.0 },
+      uCtClipScope: { value: 0.0 },
+      uCtBoxMin: { value: new THREE.Vector3(-1e6, -1e6, -1e6) },
+      uCtBoxMax: { value: new THREE.Vector3(1e6, 1e6, 1e6) },
     };
 
     const workerCount = cfg.workerCount || 3;
@@ -264,6 +320,7 @@ class Dolphin3DEngine {
 
     this.initPickMarkers();
     this.bindUIEvents();
+    this.voxelAnalyzer = new VoxelAnalyzer3D(this);
     this.syncTargetTeleportButton();
   }
 
@@ -343,7 +400,7 @@ class Dolphin3DEngine {
   }
 
   createWorker(index) {
-    const w = new Worker("./js/vxq-worker.js");
+    const w = new Worker("./js/vxq-worker.js?v=20261120-ui3");
     w.onmessage = (e) => {
       const msg = e.data;
       const job = this.pendingJobs.get(msg.id);
@@ -402,7 +459,11 @@ class Dolphin3DEngine {
           this.pointerDownInfo = null;
         }
       }
-      if (this.pickTeleportMode && this.activePointers.size === 0 && e.buttons === 0) {
+      if (
+        (this.pickTeleportMode || Boolean(this.voxelAnalyzer?.isCornerPicking())) &&
+        this.activePointers.size === 0 &&
+        e.buttons === 0
+      ) {
         this.scheduleHoverPreview(e.clientX, e.clientY);
       }
     });
@@ -430,13 +491,22 @@ class Dolphin3DEngine {
         if (this.hoverMarker) this.hoverMarker.visible = false;
         this.markDirty(2);
       }
+      if (this.voxelAnalyzer?.isCornerPicking()) {
+        this.voxelAnalyzer.clearCornerHoverPreview();
+      }
     });
 
     window.addEventListener("keydown", (e) => {
       if (!this.active) return;
-      if (e.code === "Escape" && this.pickTeleportMode) {
-        this.setPickTeleportMode(false);
-        return;
+      if (e.code === "Escape") {
+        if (this.voxelAnalyzer?.isCornerPicking()) {
+          this.voxelAnalyzer.setCornerPickMode(false);
+          return;
+        }
+        if (this.pickTeleportMode) {
+          this.setPickTeleportMode(false);
+          return;
+        }
       }
       const tag = document.activeElement?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
@@ -444,12 +514,14 @@ class Dolphin3DEngine {
       this.markDirty(2);
     });
     window.addEventListener("keyup", (e) => this.keys.delete(e.code));
+    window.addEventListener("blur", () => this.keys.clear());
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) this.keys.clear();
+    });
 
     window.addEventListener("resize", () => {
       if (!this.initialized) return;
-      this.camera.aspect = window.innerWidth / window.innerHeight;
-      this.camera.updateProjectionMatrix();
-      this.renderer.setSize(window.innerWidth, window.innerHeight);
+      this.syncViewportSize();
       if (this.active) this.markDirty(2);
     });
 
@@ -545,6 +617,7 @@ class Dolphin3DEngine {
     });
 
     document.addEventListener("auth-success", () => this.syncTargetTeleportButton());
+    document.addEventListener("auth-state-change", () => this.syncTargetTeleportButton());
     document.addEventListener("teleport-loading-change", (e) => {
       this.syncTargetTeleportButton(Boolean(e.detail?.loading));
     });
@@ -608,8 +681,31 @@ class Dolphin3DEngine {
         worldOrigin: this.worldOrigin,
         cutMode: this.sharedUniforms.uCutMode.value,
         clipY: this.sharedUniforms.uClipY.value,
+        ctClipAxis: this.sharedUniforms.uCtClipAxis.value,
+        ctClipVal: this.sharedUniforms.uCtClipVal.value,
+        ctClipDir: this.sharedUniforms.uCtClipDir.value,
+        ctClipScope: this.sharedUniforms.uCtClipScope.value,
+        ctBoxMin: [
+          this.sharedUniforms.uCtBoxMin.value.x,
+          this.sharedUniforms.uCtBoxMin.value.y,
+          this.sharedUniforms.uCtBoxMin.value.z,
+        ],
+        ctBoxMax: [
+          this.sharedUniforms.uCtBoxMax.value.x,
+          this.sharedUniforms.uCtBoxMax.value.y,
+          this.sharedUniforms.uCtBoxMax.value.z,
+        ],
       }
     );
+  }
+
+  pickScenePointAtClientPos(clientX, clientY) {
+    if (!this.active || !this.manifestLoaded || !this.renderer) return null;
+    const terrainHit = this.pickTerrainAtClientPos(clientX, clientY);
+    const ctHit = this.voxelAnalyzer?.isCtActive()
+      ? this.voxelAnalyzer.pickCtSlice(this.raycaster)
+      : null;
+    return ctHit && (!terrainHit || ctHit.t <= terrainHit.t + 0.05) ? ctHit : terrainHit;
   }
 
   updatePickMarker(markerGroup, hit) {
@@ -634,18 +730,34 @@ class Dolphin3DEngine {
     this.selectedPoint = { ...hit, dim: this.currentDim };
     this.updatePickMarker(this.selectionMarker, hit);
     const dimLabel = window.DOLPHIN_3D_CONFIG.dimensions[this.currentDim]?.label || this.currentDim;
-    this.showInfoCard(
-      {
-        badge: `[${dimLabel}] 3D 地形點擊座標`,
-        title: "點擊傳送目標",
-        addr: `點擊方塊 (${hit.blockX}, ${hit.blockY}, ${hit.blockZ}) → 落點 Y+1`,
-        x: hit.x,
-        y: hit.y,
-        z: hit.z,
-        dim: this.currentDim,
-      },
-      { preserveSelection: true }
-    );
+    if (hit.blockName) {
+      const prefix = hit.isCtSlice ? "CT 切面方塊" : "點擊方塊";
+      this.showInfoCard(
+        {
+          badge: `[${dimLabel}] 3D 方塊資料`,
+          title: formatBlockDisplayName(hit.blockName),
+          addr: `${prefix} (${hit.blockX}, ${hit.blockY}, ${hit.blockZ}) → 落點 Y+1`,
+          x: hit.x,
+          y: hit.y,
+          z: hit.z,
+          dim: this.currentDim,
+        },
+        { preserveSelection: true }
+      );
+    } else {
+      this.showInfoCard(
+        {
+          badge: `[${dimLabel}] 3D 地形點擊座標`,
+          title: "點擊傳送目標",
+          addr: `點擊方塊 (${hit.blockX}, ${hit.blockY}, ${hit.blockZ}) → 落點 Y+1`,
+          x: hit.x,
+          y: hit.y,
+          z: hit.z,
+          dim: this.currentDim,
+        },
+        { preserveSelection: true }
+      );
+    }
     this.syncTargetTeleportButton();
     this.markDirty(2);
   }
@@ -660,9 +772,12 @@ class Dolphin3DEngine {
   setPickTeleportMode(enabled) {
     const next = Boolean(enabled);
     if (this.pickTeleportMode === next) return;
+    if (next) {
+      this.voxelAnalyzer?.setCornerPickMode(false);
+    }
     this.pickTeleportMode = next;
     if (this.containerEl) {
-      this.containerEl.classList.toggle("picking-mode", next);
+      this.containerEl.classList.toggle("picking-mode", next || Boolean(this.voxelAnalyzer?.isCornerPicking()));
     }
     if (!next) {
       this.hoverPoint = null;
@@ -679,11 +794,16 @@ class Dolphin3DEngine {
     this.hoverRafPending = true;
     requestAnimationFrame(() => {
       this.hoverRafPending = false;
-      if (!this.pickTeleportMode || !this.active || !this.manifestLoaded || !this.lastHoverClient) {
+      const isCornerPicking = Boolean(this.voxelAnalyzer?.isCornerPicking());
+      if ((!this.pickTeleportMode && !isCornerPicking) || !this.active || !this.manifestLoaded || !this.lastHoverClient) {
         return;
       }
       const { x, y } = this.lastHoverClient;
-      const hit = this.pickTerrainAtClientPos(x, y);
+      const hit = this.pickScenePointAtClientPos(x, y);
+      if (isCornerPicking) {
+        this.voxelAnalyzer.updateCornerHoverPreview(hit);
+        return;
+      }
       const prev = this.hoverPoint;
       const changed =
         Boolean(hit) !== Boolean(prev) ||
@@ -707,7 +827,30 @@ class Dolphin3DEngine {
   }
 
   handleCanvasClick(clientX, clientY) {
-    const hit = this.pickTerrainAtClientPos(clientX, clientY);
+    if (this.voxelAnalyzer?.isCornerPicking()) {
+      if (!this.manifestLoaded) return;
+      let hit = this.pickScenePointAtClientPos(clientX, clientY);
+      if (!hit && this.raycaster) {
+        const { origin, direction } = this.raycaster.ray;
+        if (Math.abs(direction.y) > 1e-4) {
+          const t = (this.controls.target.y - origin.y) / direction.y;
+          if (t > this.camera.near) {
+            hit = {
+              blockX: Math.floor(origin.x + direction.x * t + this.worldOrigin[0]),
+              blockY: Math.floor(this.controls.target.y + this.worldOrigin[1]),
+              blockZ: Math.floor(origin.z + direction.z * t + this.worldOrigin[2]),
+            };
+          }
+        }
+      }
+      if (hit) {
+        this.voxelAnalyzer.handleCornerPick(hit);
+      }
+      return;
+    }
+
+    const hit = this.pickScenePointAtClientPos(clientX, clientY);
+
     if (hit) {
       this.selectTerrainPoint(hit);
       if (this.pickTeleportMode) {
@@ -760,7 +903,7 @@ class Dolphin3DEngine {
     };
   }
 
-  createTileMaterial(tileOffset, isTranslucent, wireframe = false) {
+  createTileMaterial(tileOffset, isTranslucent, wireframe = false, isOverlay = false) {
     return new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
       vertexShader: VERTEX_SHADER,
@@ -771,18 +914,25 @@ class Dolphin3DEngine {
         uSunDir: this.sharedUniforms.uSunDir,
         uFogColor: this.sharedUniforms.uFogColor,
         uFogDensity: this.sharedUniforms.uFogDensity,
-        uWorldOriginY: this.sharedUniforms.uWorldOriginY,
-        uCutMode: this.sharedUniforms.uCutMode,
-        uClipY: this.sharedUniforms.uClipY,
+        uWorldOrigin: this.sharedUniforms.uWorldOrigin,
+        uCutMode: isOverlay ? { value: 0.0 } : this.sharedUniforms.uCutMode,
+        uClipY: isOverlay ? { value: 9999.0 } : this.sharedUniforms.uClipY,
+        uTerrainAlpha: isOverlay ? { value: 1.0 } : this.sharedUniforms.uTerrainAlpha,
+        uCtClipAxis: isOverlay ? { value: 0.0 } : this.sharedUniforms.uCtClipAxis,
+        uCtClipVal: isOverlay ? { value: 0.0 } : this.sharedUniforms.uCtClipVal,
+        uCtClipDir: isOverlay ? { value: 1.0 } : this.sharedUniforms.uCtClipDir,
+        uCtClipScope: isOverlay ? { value: 0.0 } : this.sharedUniforms.uCtClipScope,
+        uCtBoxMin: isOverlay ? { value: new THREE.Vector3() } : this.sharedUniforms.uCtBoxMin,
+        uCtBoxMax: isOverlay ? { value: new THREE.Vector3() } : this.sharedUniforms.uCtBoxMax,
       },
-      transparent: isTranslucent && !wireframe,
-      depthWrite: !isTranslucent || wireframe,
+      transparent: (isTranslucent && !wireframe) || (!isOverlay && this.terrainDisplayMode === "translucent" && !wireframe),
+      depthWrite: !((isTranslucent && !wireframe) || (!isOverlay && this.terrainDisplayMode === "translucent" && !wireframe)),
       side: isTranslucent ? THREE.DoubleSide : THREE.FrontSide,
       wireframe,
     });
   }
 
-  createInstancedQuadMesh(quadBuf, quadCount, aabb, tileOffset, isTranslucent) {
+  createInstancedQuadMesh(quadBuf, quadCount, aabb, tileOffset, isTranslucent, isOverlay = false) {
     const geo = new THREE.InstancedBufferGeometry();
     const cornerAttr = new THREE.BufferAttribute(new Uint8Array([0, 1, 2, 3]), 1);
     cornerAttr.gpuType = THREE.IntType;
@@ -811,17 +961,49 @@ class Dolphin3DEngine {
     const mat = this.createTileMaterial(
       new THREE.Vector3(...tileOffset),
       isTranslucent,
-      this.renderMode === "wireframe"
+      isOverlay ? false : this.renderMode === "wireframe",
+      isOverlay
     );
     const mesh = new THREE.Mesh(geo, mat);
     mesh.renderOrder = isTranslucent ? 2 : 1;
     return mesh;
   }
 
+  createOverlayQuadMesh(quadBuf, quadCount, aabb, tileOffset, isTranslucent) {
+    return this.createInstancedQuadMesh(quadBuf, quadCount, aabb, tileOffset, isTranslucent, true);
+  }
+
+  setTerrainDisplayMode(mode) {
+    this.terrainDisplayMode = mode || "normal";
+    if (this.sharedUniforms) {
+      this.sharedUniforms.uTerrainAlpha.value = this.terrainDisplayMode === "translucent" ? 0.22 : 1.0;
+    }
+    this.updateDesiredTiles();
+    this.applyMaterialAll();
+  }
+
+  setCtClip(axis, val, dir = 1, scope = 0, boxMin = null, boxMax = null) {
+    if (!this.sharedUniforms) return;
+    this.sharedUniforms.uCtClipAxis.value = axis || 0;
+    this.sharedUniforms.uCtClipVal.value = val || 0;
+    this.sharedUniforms.uCtClipDir.value = dir < 0 ? -1.0 : 1.0;
+    this.sharedUniforms.uCtClipScope.value = scope > 0.5 ? 1.0 : 0.0;
+    if (Array.isArray(boxMin) && boxMin.length >= 3) {
+      this.sharedUniforms.uCtBoxMin.value.set(boxMin[0], boxMin[1], boxMin[2]);
+    }
+    if (Array.isArray(boxMax) && boxMax.length >= 3) {
+      this.sharedUniforms.uCtBoxMax.value.set(boxMax[0], boxMax[1], boxMax[2]);
+    }
+    this.markDirty(2);
+  }
+
   applyMaterialToTile(tile) {
     const isWire = this.renderMode === "wireframe";
+    const isTransTerrain = this.terrainDisplayMode === "translucent" && !isWire;
     if (tile.solidMesh) {
       tile.solidMesh.material.wireframe = isWire;
+      tile.solidMesh.material.transparent = isTransTerrain;
+      tile.solidMesh.material.depthWrite = !isTransTerrain;
     }
     if (tile.transMesh) {
       tile.transMesh.visible = this.showTranslucent;
@@ -851,6 +1033,9 @@ class Dolphin3DEngine {
     tile.group = null;
     tile.solidMesh = null;
     tile.transMesh = null;
+    tile.palette = null;
+    tile.solidBids = null;
+    tile.transBids = null;
     tile.tileOffset = null;
     tile.boundingBox = null;
     tile.rawBytes = 0;
@@ -913,6 +1098,9 @@ class Dolphin3DEngine {
       tile.group = group;
       tile.solidMesh = solidMesh;
       tile.transMesh = transMesh;
+      tile.palette = decoded.palette || null;
+      tile.solidBids = decoded.solidBidsBuf ? new Uint16Array(decoded.solidBidsBuf) : null;
+      tile.transBids = decoded.transBidsBuf ? new Uint16Array(decoded.transBidsBuf) : null;
       tile.tileOffset = decoded.tileOffset;
       tile.boundingBox = {
         min: { x: ax0 + ox - 0.01, y: ay0 + oy - 0.01, z: az0 + oz - 0.01 },
@@ -928,7 +1116,7 @@ class Dolphin3DEngine {
       this.networkFetchedCount++;
 
       this.applyMaterialToTile(tile);
-      tile.group.visible = Boolean(tile._desired);
+      tile.group.visible = Boolean(tile._desired) && this.terrainDisplayMode !== "hidden";
       this.scene.add(tile.group);
       this.markDirty(2);
     } catch (err) {
@@ -971,7 +1159,7 @@ class Dolphin3DEngine {
       tile._desired = this.cullMode === "all" || distSq <= this.cullRadius * this.cullRadius;
 
       if (tile.state === "loaded" && tile.group) {
-        tile.group.visible = tile._desired;
+        tile.group.visible = tile._desired && this.terrainDisplayMode !== "hidden";
         if (tile._desired) tile.lastUsed = now;
       }
     }
@@ -1105,6 +1293,7 @@ class Dolphin3DEngine {
     }
 
     if (!this.vxqBaseUrl) {
+      this.voxelAnalyzer?.onDimensionChanged(dimId);
       this.updateStreamingStatsUI();
       this.markDirty(2);
       return;
@@ -1121,7 +1310,7 @@ class Dolphin3DEngine {
       if (!this.active || epoch !== this.currentEpoch) return;
 
       this.worldOrigin = this.manifestData.worldOrigin;
-      this.sharedUniforms.uWorldOriginY.value = this.worldOrigin[1];
+      this.sharedUniforms.uWorldOrigin.value.set(...this.worldOrigin);
       this.manifestLoaded = true;
 
       for (const meta of this.manifestData.tiles) {
@@ -1134,6 +1323,9 @@ class Dolphin3DEngine {
           group: null,
           solidMesh: null,
           transMesh: null,
+          palette: null,
+          solidBids: null,
+          transBids: null,
           tileOffset: null,
           boundingBox: null,
           rawBytes: 0,
@@ -1152,12 +1344,14 @@ class Dolphin3DEngine {
       }
       this.pendingFocusTarget = null;
       this.loadingDim = null;
+      this.voxelAnalyzer?.onDimensionChanged(dimId);
       this.pumpStreamingQueue();
       this.markDirty(4);
     } catch (err) {
       if (epoch === this.currentEpoch) {
         this.loadingDim = null;
         this.manifestLoaded = false;
+        this.voxelAnalyzer?.onDimensionChanged(dimId);
         if (statusEl) statusEl.textContent = `3D 端點連線失敗：${err.message || err}`;
       }
     }
@@ -1301,6 +1495,7 @@ class Dolphin3DEngine {
       }
 
       const localPos = this.mcToLocal(b.x, b.y + 18, b.z);
+      const vp = this.getViewportSize();
       this.tmpVec.copy(localPos).project(this.camera);
       if (
         this.tmpVec.z > 1 ||
@@ -1311,8 +1506,8 @@ class Dolphin3DEngine {
         entry.el.style.display = "none";
       } else {
         entry.el.style.display = "block";
-        entry.el.style.left = `${(this.tmpVec.x * 0.5 + 0.5) * window.innerWidth}px`;
-        entry.el.style.top = `${(-this.tmpVec.y * 0.5 + 0.5) * window.innerHeight}px`;
+        entry.el.style.left = `${(this.tmpVec.x * 0.5 + 0.5) * vp.width}px`;
+        entry.el.style.top = `${(-this.tmpVec.y * 0.5 + 0.5) * vp.height}px`;
       }
     }
 
@@ -1375,6 +1570,7 @@ class Dolphin3DEngine {
       entry.player = p;
 
       const localPos = this.mcToLocal(p.x, (Number.isFinite(p.y) ? p.y : 80) + 4, p.z);
+      const vp = this.getViewportSize();
       this.tmpVec.copy(localPos).project(this.camera);
       if (
         this.tmpVec.z > 1 ||
@@ -1385,8 +1581,8 @@ class Dolphin3DEngine {
         entry.el.style.display = "none";
       } else {
         entry.el.style.display = "flex";
-        entry.el.style.left = `${(this.tmpVec.x * 0.5 + 0.5) * window.innerWidth}px`;
-        entry.el.style.top = `${(-this.tmpVec.y * 0.5 + 0.5) * window.innerHeight}px`;
+        entry.el.style.left = `${(this.tmpVec.x * 0.5 + 0.5) * vp.width}px`;
+        entry.el.style.top = `${(-this.tmpVec.y * 0.5 + 0.5) * vp.height}px`;
       }
     }
 
@@ -1466,6 +1662,11 @@ class Dolphin3DEngine {
         `3D PICK · ${this.currentDim.toUpperCase()}`,
         `落點 (Y+1) X: ${p.x}, Y: ${p.y}, Z: ${p.z}`
       );
+    } else if (this.voxelAnalyzer?.isCornerPicking() && this.manifestLoaded) {
+      this.updateCoordsHUD(
+        `3D BOX · ${this.currentDim.toUpperCase()}`,
+        this.voxelAnalyzer.getCornerPickHudText()
+      );
     } else {
       const mc = this.manifestLoaded
         ? this.localToMc(this.controls.target)
@@ -1476,37 +1677,12 @@ class Dolphin3DEngine {
       this.updateCoordsHUD(`3D VIEW · ${this.currentDim.toUpperCase()}`, xyzLabel);
     }
 
-    const trisEl = document.getElementById("stat3d-tris");
-    if (trisEl) {
-      trisEl.textContent = `${this.renderer.info.render.triangles.toLocaleString()} / ${this.renderer.info.render.calls}`;
-    }
-
-    this.fpsFrames++;
-    this.fpsTimer += dt;
-    if (this.fpsTimer >= 0.4) {
-      const fps = Math.round(this.fpsFrames / this.fpsTimer);
-      const fpsEl = document.getElementById("stat3d-fps");
-      if (fpsEl) {
-        fpsEl.textContent = `${fps} FPS`;
-        fpsEl.className = `stat3d-val ${fps >= 48 ? "good" : fps >= 28 ? "warn" : "low"}`;
-      }
-      this.fpsFrames = 0;
-      this.fpsTimer = 0;
-    }
-
     if (this.dirtyFrames > 0) this.dirtyFrames--;
     const keepRunning = !this.powerSave || this.dirtyFrames > 0 || this.flyAnim !== null || this.keys.size > 0;
     if (keepRunning) {
       requestAnimationFrame((n) => this.animate(n));
     } else {
       this.rafRunning = false;
-      this.fpsFrames = 0;
-      this.fpsTimer = 0;
-      const fpsEl = document.getElementById("stat3d-fps");
-      if (fpsEl) {
-        fpsEl.textContent = "待機省電 (0% GPU)";
-        fpsEl.className = "stat3d-val good";
-      }
     }
   }
 
@@ -1542,6 +1718,7 @@ class Dolphin3DEngine {
     }
 
     this.active = true;
+    document.body.classList.add("is-3d-mode");
     this.mapEl.style.display = "none";
     this.containerEl.style.display = "block";
     this.panel3DEl.style.display = "flex";
@@ -1550,8 +1727,9 @@ class Dolphin3DEngine {
       this.toggleBtnEl.classList.add("is-3d");
     }
     this.syncTargetTeleportButton();
+    this.voxelAnalyzer?.openPanel();
 
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.syncViewportSize();
     await this.loadDimension(dim, {
       x: focusX,
       y: focusY,
@@ -1580,10 +1758,12 @@ class Dolphin3DEngine {
     }
 
     this.active = false;
+    document.body.classList.remove("is-3d-mode");
     this.rafRunning = false;
     this.flyAnim = null;
     this.keys.clear();
     this.setPickTeleportMode(false);
+    this.voxelAnalyzer?.closePanel();
     this.hideInfoCard();
     this.clearSelectionMarker();
 

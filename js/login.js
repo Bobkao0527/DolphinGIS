@@ -38,6 +38,7 @@ const authSystem = {
                     this.currentUser = data.username;
                     this.setLoggedInState(data.username, loadingEl, guestEl, userEl);
                     document.dispatchEvent(new CustomEvent('auth-success', { detail: data }));
+                    document.dispatchEvent(new CustomEvent('auth-state-change', { detail: { loggedIn: true } }));
                     return;
                 }
             }
@@ -56,6 +57,7 @@ const authSystem = {
         if (loading) loading.style.display = 'none';
         if (guest) guest.style.display = 'block';
         if (user) user.style.display = 'none';
+        document.dispatchEvent(new CustomEvent('auth-state-change', { detail: { loggedIn: false } }));
     },
 
     setLoggedInState(username, loading, guest, user) {

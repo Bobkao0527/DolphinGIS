@@ -7,7 +7,7 @@
     <!-- 外部樣式庫 -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <!-- 專案樣式 -->
-    <link rel="stylesheet" href="css/style.css" />
+    <link rel="stylesheet" href="css/style.css?v=20261120-ui3" />
     <script type="importmap">
         {
             "imports": {
@@ -88,52 +88,208 @@
         <div id="labels-3d-layer"></div>
     </div>
 
-    <!-- 右上角 2D/3D 切換與 3D 引擎控制面板 -->
+    <!-- 右上角 2D/3D 切換與右側滑出式 3D 工作區 -->
     <div id="toggle-3d-wrap">
         <button id="toggle-3d-btn" class="toggle-3d-btn" type="button">🧊 切換 3D 實景</button>
     </div>
 
-    <div id="panel-3d" class="panel-3d" style="display: none;">
-        <div id="load3d-status" class="panel3d-status">準備連線 3D 節點...</div>
-        <div class="panel3d-progress"><div id="progress3d-fill"></div></div>
-        <div class="stat3d-grid">
-            <div class="stat3d-box"><span class="stat3d-label">FPS / 省電</span><div id="stat3d-fps" class="stat3d-val good">--</div></div>
-            <div class="stat3d-box"><span class="stat3d-label">三角形 / Calls</span><div id="stat3d-tris" class="stat3d-val">--</div></div>
-            <div class="stat3d-box"><span class="stat3d-label">顯示 / 快取 / 總塊</span><div id="stat3d-tiles" class="stat3d-val">--</div></div>
-            <div class="stat3d-box"><span class="stat3d-label">傳輸 / VRAM</span><div id="stat3d-size" class="stat3d-val">--</div></div>
-        </div>
-        <div class="panel3d-sec">算光與著色</div>
-        <div class="panel3d-btns" id="mode3d-buttons">
-            <button data-mode="unlit" class="active">純免算光 AO</button>
-            <button data-mode="sun">＋太陽光</button>
-            <button data-mode="wireframe">線框</button>
-        </div>
-        <div class="panel3d-btns" style="margin-top: 6px;">
-            <button id="toggle3d-translucent" class="active">玻璃水體：開</button>
-            <button id="toggle3d-buildings" class="active">建物標籤：開</button>
-            <button id="toggle3d-powersave" class="active">靜止省電：開</button>
-        </div>
-        <div class="panel3d-slider">
-            <span>視距半徑</span>
-            <input id="radius3d-slider" type="range" min="200" max="1100" step="50" value="380" />
-            <span id="radius3d-val">380 格</span>
-        </div>
-        <div id="nether3d-cut-box" style="display: none;">
-            <div class="panel3d-sec">地獄基岩透視（Y 軸）</div>
-            <div class="panel3d-btns" id="ncut3d-buttons">
-                <button data-ncut="roof" class="active">雙層透視</button>
-                <button data-ncut="clip">基岩下剖面</button>
-                <button data-ncut="full">完整全高</button>
+    <aside id="panel-3d" class="panel-3d workspace-3d" style="display: none;">
+        <!-- 右上區塊：3D 渲染網路消耗流量、渲染區塊數與各個可調項 -->
+        <div class="workspace3d-top">
+            <div class="workspace3d-header">
+                <div class="workspace3d-title">
+                    <span class="workspace3d-dot"></span>
+                    <span>3D 渲染工作區</span>
+                </div>
             </div>
-            <div class="panel3d-slider" id="yclip3d-row" style="display: none;">
-                <span>剖面上限</span>
-                <input id="yclip3d-slider" type="range" min="32" max="176" step="2" value="112" />
-                <span id="yclip3d-val">Y ≤ 112</span>
+
+            <div id="load3d-status" class="panel3d-status">準備連線 3D 節點...</div>
+            <div class="panel3d-progress"><div id="progress3d-fill"></div></div>
+
+            <div class="stat3d-grid">
+                <div class="stat3d-box">
+                    <span class="stat3d-label">渲染區塊數 (顯示/快取/總)</span>
+                    <div id="stat3d-tiles" class="stat3d-val good">--</div>
+                </div>
+                <div class="stat3d-box">
+                    <span class="stat3d-label">3D 渲染網路消耗流量</span>
+                    <div id="stat3d-size" class="stat3d-val">--</div>
+                </div>
+            </div>
+
+            <div class="panel3d-controls-group">
+                <div class="panel3d-row">
+                    <span class="panel3d-sec">算光著色</span>
+                    <div class="panel3d-btns" id="mode3d-buttons">
+                        <button data-mode="unlit" class="active" type="button">免算光 AO</button>
+                        <button data-mode="sun" type="button">＋太陽光</button>
+                        <button data-mode="wireframe" type="button">線框</button>
+                    </div>
+                </div>
+
+                <div class="panel3d-btns">
+                    <button id="toggle3d-translucent" class="active" type="button">玻璃水體：開</button>
+                    <button id="toggle3d-buildings" class="active" type="button">建物標籤：開</button>
+                    <button id="toggle3d-powersave" class="active" type="button">靜止省電：開</button>
+                </div>
+
+                <div class="panel3d-slider">
+                    <span>視距半徑</span>
+                    <input id="radius3d-slider" type="range" min="200" max="1100" step="20" value="380" />
+                    <span id="radius3d-val">380 格</span>
+                </div>
+
+                <div id="nether3d-cut-box" style="display: none;">
+                    <div class="panel3d-sec">地獄基岩透視（Y 軸）</div>
+                    <div class="panel3d-btns" id="ncut3d-buttons">
+                        <button data-ncut="roof" class="active" type="button">雙層透視</button>
+                        <button data-ncut="clip" type="button">基岩下剖面</button>
+                        <button data-ncut="full" type="button">完整全高</button>
+                    </div>
+                    <div class="panel3d-slider" id="yclip3d-row" style="display: none;">
+                        <span>剖面上限</span>
+                        <input id="yclip3d-slider" type="range" min="32" max="176" step="2" value="112" />
+                        <span id="yclip3d-val">Y ≤ 112</span>
+                    </div>
+                </div>
+
+                <button id="tp-3d-target-btn" class="panel3d-tp-btn" type="button">🎯 點選 3D 地形傳送 (Y+1)</button>
             </div>
         </div>
-        <button id="tp-3d-target-btn" class="panel3d-tp-btn" type="button">🎯 點選 3D 地形傳送 (Y+1)</button>
-        <div class="panel3d-hint">左鍵輕點選點 ｜ 拖曳旋轉 ｜ 右鍵平移 ｜ 滾輪縮放 ｜ WASD 飛行</div>
-    </div>
+
+        <!-- 右下區塊：Blender 風格左側工具圖示列 + 右側工具面板 -->
+        <div id="panel-voxel-analyzer" class="workspace3d-bottom">
+            <!-- 左側垂直工具圖示列 (Blender Properties Tabs) -->
+            <nav id="vox-tool-tabs" class="blender-tool-rail" aria-label="3D 分析工具列">
+                <button class="blender-tool-btn active" data-vox-tab="box" type="button" title="選取區調整">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                        <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                        <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                    </svg>
+                    <span>選取區</span>
+                </button>
+                <button class="blender-tool-btn" data-vox-tab="stats" type="button" title="方塊數目分析">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="20" x2="18" y2="10"></line>
+                        <line x1="12" y1="20" x2="12" y2="4"></line>
+                        <line x1="6" y1="20" x2="6" y2="14"></line>
+                    </svg>
+                    <span>方塊數</span>
+                    <em id="vox-tab-stats-badge" class="blender-tab-badge" style="display: none;">0</em>
+                </button>
+                <button class="blender-tool-btn" data-vox-tab="ct" type="button" title="CT 截面分析">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                        <polyline points="2 12 12 17 22 12"></polyline>
+                        <polyline points="2 17 12 22 22 17"></polyline>
+                    </svg>
+                    <span>CT截面</span>
+                </button>
+            </nav>
+
+            <!-- 右下側對應工具面板內容 -->
+            <div class="blender-tool-body">
+                <div class="vox-header">
+                    <span id="vox-active-tab-title">📐 選取區調整</span>
+                    <button id="vox-panel-close" class="vox-reset-btn" type="button" title="清除選區框、方塊高亮與 CT 切面">重置</button>
+                </div>
+                <div id="vox-status" class="vox-status">準備讀取全高體素索引...</div>
+
+                <!-- 工具一：選取區調整 -->
+                <div id="vox-pane-box" class="vox-tab-pane active" data-vox-pane="box">
+                    <div class="panel3d-sec">快速建立立體選區</div>
+                    <div class="panel3d-btns">
+                        <button id="vox-quick-64-btn" type="button">視角 64×64</button>
+                        <button id="vox-quick-128-btn" type="button">視角 128×128</button>
+                        <button id="vox-pick-corners-btn" type="button" title="依序點擊 3D 地形兩個對角，依兩點 X/Y/Z 建立 3D 立方體選區">📍 兩點選 3D 立方體</button>
+                    </div>
+                    <div class="vox-sec-row">
+                        <span class="panel3d-sec">選取區邊界座標 (X / Y / Z)</span>
+                        <button id="vox-full-y-btn" class="vox-inline-btn" type="button" title="將 Y 軸展開為維度全高">全高 Y</button>
+                    </div>
+                    <div class="vox-bounds-grid">
+                        <label>X Min <input id="vox-xmin" type="number" /></label>
+                        <label>X Max <input id="vox-xmax" type="number" /></label>
+                        <label>Y Min <input id="vox-ymin" type="number" min="-64" max="319" /></label>
+                        <label>Y Max <input id="vox-ymax" type="number" min="-64" max="319" /></label>
+                        <label>Z Min <input id="vox-zmin" type="number" /></label>
+                        <label>Z Max <input id="vox-zmax" type="number" /></label>
+                    </div>
+                    <div id="vox-box-dim-preview" class="vox-box-dim-preview">選區尺寸：--</div>
+                    <button id="vox-analyze-btn" class="vox-primary-btn" type="button">📊 套用並分析選取區</button>
+                </div>
+
+                <!-- 工具二：方塊數目分析 -->
+                <div id="vox-pane-stats" class="vox-tab-pane" data-vox-pane="stats">
+                    <div id="vox-stats-summary" class="vox-summary">尚未分析選取區</div>
+                    <div class="panel3d-sec">原地形顯示（搭配方塊 / 空氣分布透視）</div>
+                    <div class="panel3d-btns" id="vox-terrain-buttons">
+                        <button data-terrain="normal" class="active" type="button">正常</button>
+                        <button data-terrain="translucent" type="button">半透明</button>
+                        <button data-terrain="hidden" type="button">隱藏</button>
+                    </div>
+                    <div class="panel3d-sec">方塊數量排行（勾選高亮 3D 分布）</div>
+                    <div class="vox-filter-bar">
+                        <input id="vox-filter-search" type="text" placeholder="搜尋方塊（如 空氣 / stone / rail）" autocomplete="off" />
+                        <button id="vox-clear-filter-btn" type="button">清除勾選</button>
+                    </div>
+                    <div id="vox-stats-list" class="vox-stats-list"></div>
+                </div>
+
+                <!-- 工具三：CT 截面分析 -->
+                <div id="vox-pane-ct" class="vox-tab-pane" data-vox-pane="ct">
+                    <div class="vox-ct-toggles">
+                        <label class="vox-ct-toggle">
+                            <input id="vox-ct-enabled" type="checkbox" />
+                            <span>啟用 3D 實心斷層切面</span>
+                        </label>
+                        <label class="vox-ct-toggle">
+                            <input id="vox-ct-clip-terrain" type="checkbox" checked />
+                            <span>裁切切面外側地形</span>
+                        </label>
+                        <label class="vox-ct-toggle">
+                            <input id="vox-ct-show-air" type="checkbox" />
+                            <span>3D 顯示空氣空腔底色</span>
+                        </label>
+                    </div>
+                    <div id="vox-ct-controls" class="vox-ct-controls">
+                        <div class="panel3d-sec">切面方向與座標軸</div>
+                        <div class="panel3d-btns" id="vox-ct-axis-buttons">
+                            <button data-axis="0" class="active" type="button">Y 水平切面</button>
+                            <button data-axis="1" type="button">X 東西剖面</button>
+                            <button data-axis="2" type="button">Z 南北剖面</button>
+                        </div>
+                        <div class="vox-ct-row">
+                            <span class="panel3d-sec">裁切範圍</span>
+                            <div class="panel3d-btns" id="vox-ct-scope-buttons">
+                                <button data-scope="box" class="active" type="button">僅選區</button>
+                                <button data-scope="global" type="button">全圖</button>
+                            </div>
+                        </div>
+                        <div class="vox-ct-row">
+                            <span class="panel3d-sec">裁切方向</span>
+                            <div class="panel3d-btns" id="vox-ct-dir-buttons">
+                                <button data-dir="1" class="active" type="button">切上方 (+Y)</button>
+                                <button data-dir="-1" type="button">切下方 (-Y)</button>
+                            </div>
+                        </div>
+                        <div class="vox-ct-slider-row">
+                            <button id="vox-ct-dec-btn" type="button">-1</button>
+                            <input id="vox-ct-slider" type="range" min="-64" max="319" value="64" />
+                            <button id="vox-ct-inc-btn" type="button">+1</button>
+                            <span id="vox-ct-coord-val">Y = 64</span>
+                        </div>
+                        <div class="panel3d-sec">2D 截面預覽與座標探針</div>
+                        <div id="vox-ct-axes-hint" class="vox-ct-axes-hint">西(X-) → 東(X+) ｜ 北(Z-) ↓ 南(Z+)</div>
+                        <canvas id="vox-ct-canvas" class="vox-ct-canvas" width="128" height="128"></canvas>
+                        <div id="vox-ct-hover" class="vox-ct-hover">滑鼠移到切面上可查看各格方塊</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="workspace3d-footer panel3d-hint">左鍵選點 ｜ 拖曳旋轉 ｜ 右鍵平移 ｜ WASD 飛行</div>
+    </aside>
 
     <!-- 3D 模式建物 / 玩家資訊卡 -->
     <div id="popup-3d" class="popup-3d" style="display: none;">
@@ -162,13 +318,13 @@
 
     <!-- 腳本引用 -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="js/utils.js"></script>
-    <script src="js/config-3d.js"></script>
-    <script src="js/login.js"></script>
-    <script src="js/teleport.js"></script>
-    <script src="js/map-logic.js"></script>
-    <script src="js/search-logic.js"></script>
-    <script src="js/tracker-logic.js"></script>
-    <script src="js/loader-3d.js"></script>
+    <script src="js/utils.js?v=20261120-ui3"></script>
+    <script src="js/config-3d.js?v=20261120-ui3"></script>
+    <script src="js/login.js?v=20261120-ui3"></script>
+    <script src="js/teleport.js?v=20261120-ui3"></script>
+    <script src="js/map-logic.js?v=20261120-ui3"></script>
+    <script src="js/search-logic.js?v=20261120-ui3"></script>
+    <script src="js/tracker-logic.js?v=20261120-ui3"></script>
+    <script src="js/loader-3d.js?v=20261120-ui3"></script>
 </body>
 </html>

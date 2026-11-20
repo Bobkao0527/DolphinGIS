@@ -1,6 +1,7 @@
-// 背景 Web Worker：負責跨網域串流下載 .vxq.gz、自動判斷 gzip/VXQ1 標頭並呼叫同網域 vxq_wasm.wasm 解析
+// 背景 Web Worker：負責跨網域串流下載 .vxq.gz、相容 VXQ1/VXQ2 並呼叫同網域 vxq_wasm.wasm 解析
 
 let wasmReady = null;
+const textDecoder = new TextDecoder();
 
 async function ensureWasm() {
   if (wasmReady) return wasmReady;
@@ -23,7 +24,17 @@ function isGzipMagic(u8) {
 }
 
 function isVxqMagic(u8) {
-  return u8.length >= 4 && u8[0] === 0x56 && u8[1] === 0x58 && u8[2] === 0x51 && u8[3] === 0x31; // "VXQ1"
+  return (
+    u8.length >= 4 &&
+    u8[0] === 0x56 &&
+    u8[1] === 0x58 &&
+    u8[2] === 0x51 &&
+    (u8[3] === 0x31 || u8[3] === 0x32) // "VXQ1" 或 "VXQ2"
+  );
+}
+
+function align4(n) {
+  return (n + 3) & ~3;
 }
 
 self.onmessage = async (e) => {
@@ -52,58 +63,145 @@ self.onmessage = async (e) => {
 
     const bytes = new Uint8Array(rawBuf);
     let dataPtr = 0;
-    let metaPtr = 0;
+    let infoPtr = 0;
+    let outPtr = 0;
+    let outBytes = 0;
 
     try {
       dataPtr = wasm.wasm_alloc(bytes.length);
-      metaPtr = wasm.wasm_alloc(44); // 11 * u32
-      if (!dataPtr || !metaPtr) {
+      infoPtr = wasm.wasm_alloc(44); // 11 * u32
+      if (!dataPtr || !infoPtr) {
         throw new Error("WASM 記憶體配置失敗");
       }
       new Uint8Array(wasm.memory.buffer, dataPtr, bytes.length).set(bytes);
-      const rc = wasm.vxq_inspect(dataPtr, bytes.length, metaPtr);
-      if (rc !== 0) {
-        throw new Error(`VXQ1 驗證失敗 (code=${rc})`);
+
+      const hrc = wasm.vxq_header_info(dataPtr, bytes.length, infoPtr);
+      if (hrc !== 0) {
+        throw new Error(`VXQ 表頭驗證失敗 (code=${hrc})`);
       }
 
-      const metaU32 = new Uint32Array(wasm.memory.buffer, metaPtr, 11);
-      const metaF32 = new Float32Array(wasm.memory.buffer, metaPtr + 32, 3);
+      const infoU32 = new Uint32Array(wasm.memory.buffer, infoPtr, 10);
+      const infoF32 = new Float32Array(wasm.memory.buffer, infoPtr + 24, 3);
+      const version = infoU32[0];
+      const solidCount = infoU32[1];
+      const transCount = infoU32[2];
+      const namesOff = infoU32[4];
+      const namesLen = infoU32[5];
+      const tileOffset = [infoF32[0], infoF32[1], infoF32[2]];
 
-      const solidCount = metaU32[0];
-      const transCount = metaU32[1];
+      if (version === 1) {
+        const rc = wasm.vxq_inspect(dataPtr, bytes.length, infoPtr);
+        if (rc !== 0) {
+          throw new Error(`VXQ1 驗證失敗 (code=${rc})`);
+        }
+        const metaU32 = new Uint32Array(wasm.memory.buffer, infoPtr, 11);
+        const aabb = [
+          metaU32[2], metaU32[3], metaU32[4],
+          metaU32[5], metaU32[6], metaU32[7],
+        ];
+        const solidByteOffset = 32;
+        const transByteOffset = 32 + solidCount * 12;
+
+        const solidArr = solidCount > 0
+          ? new Uint32Array(rawBuf, solidByteOffset, solidCount * 3).slice()
+          : new Uint32Array(0);
+        const transArr = transCount > 0
+          ? new Uint32Array(rawBuf, transByteOffset, transCount * 3).slice()
+          : new Uint32Array(0);
+
+        self.postMessage(
+          {
+            id,
+            ok: true,
+            version: 1,
+            solidCount,
+            transCount,
+            aabb,
+            tileOffset,
+            rawBytes: rawBuf.byteLength,
+            solidBuf: solidArr.buffer,
+            transBuf: transArr.buffer,
+            solidBidsBuf: null,
+            transBidsBuf: null,
+            palette: null,
+          },
+          [solidArr.buffer, transArr.buffer]
+        );
+        return;
+      }
+
+      // VXQ2 解包並還原為 GPU 12B/quad 與方塊索引陣列
+      const palette = namesLen > 0
+        ? textDecoder.decode(bytes.subarray(namesOff, namesOff + namesLen)).split("\n")
+        : [];
+
+      const aabbOff = 0;
+      const solidQOff = 24;
+      const solidBOff = solidQOff + solidCount * 12;
+      const transQOff = solidBOff + align4(solidCount * 2);
+      const transBOff = transQOff + transCount * 12;
+      outBytes = Math.max(24, transBOff + align4(transCount * 2));
+
+      outPtr = wasm.wasm_alloc(outBytes);
+      if (!outPtr) {
+        throw new Error("WASM VXQ2 輸出緩衝區配置失敗");
+      }
+
+      const rc2 = wasm.vxq_unpack_v2(
+        dataPtr,
+        bytes.length,
+        outPtr + aabbOff,
+        solidCount > 0 ? outPtr + solidQOff : 0,
+        solidCount > 0 ? outPtr + solidBOff : 0,
+        transCount > 0 ? outPtr + transQOff : 0,
+        transCount > 0 ? outPtr + transBOff : 0
+      );
+      if (rc2 !== 0) {
+        throw new Error(`VXQ2 解包失敗 (code=${rc2})`);
+      }
+
+      const memBuf = wasm.memory.buffer;
+      const aabbU32 = new Uint32Array(memBuf, outPtr + aabbOff, 6);
       const aabb = [
-        metaU32[2], metaU32[3], metaU32[4],
-        metaU32[5], metaU32[6], metaU32[7],
+        aabbU32[0], aabbU32[1], aabbU32[2],
+        aabbU32[3], aabbU32[4], aabbU32[5],
       ];
-      const tileOffset = [metaF32[0], metaF32[1], metaF32[2]];
-
-      const solidByteOffset = 32;
-      const transByteOffset = 32 + solidCount * 12;
 
       const solidArr = solidCount > 0
-        ? new Uint32Array(rawBuf, solidByteOffset, solidCount * 3).slice()
+        ? new Uint32Array(memBuf, outPtr + solidQOff, solidCount * 3).slice()
         : new Uint32Array(0);
+      const solidBidsArr = solidCount > 0
+        ? new Uint16Array(memBuf, outPtr + solidBOff, solidCount).slice()
+        : new Uint16Array(0);
       const transArr = transCount > 0
-        ? new Uint32Array(rawBuf, transByteOffset, transCount * 3).slice()
+        ? new Uint32Array(memBuf, outPtr + transQOff, transCount * 3).slice()
         : new Uint32Array(0);
+      const transBidsArr = transCount > 0
+        ? new Uint16Array(memBuf, outPtr + transBOff, transCount).slice()
+        : new Uint16Array(0);
 
       self.postMessage(
         {
           id,
           ok: true,
+          version: 2,
           solidCount,
           transCount,
           aabb,
           tileOffset,
-          rawBytes: rawBuf.byteLength,
+          rawBytes: solidCount * 12 + transCount * 12 + 32,
           solidBuf: solidArr.buffer,
           transBuf: transArr.buffer,
+          solidBidsBuf: solidBidsArr.buffer,
+          transBidsBuf: transBidsArr.buffer,
+          palette,
         },
-        [solidArr.buffer, transArr.buffer]
+        [solidArr.buffer, transArr.buffer, solidBidsArr.buffer, transBidsArr.buffer]
       );
     } finally {
+      if (outPtr) wasm.wasm_free(outPtr, outBytes);
       if (dataPtr) wasm.wasm_free(dataPtr, bytes.length);
-      if (metaPtr) wasm.wasm_free(metaPtr, 44);
+      if (infoPtr) wasm.wasm_free(infoPtr, 44);
     }
   } catch (err) {
     self.postMessage({ id, ok: false, error: err.message || String(err) });

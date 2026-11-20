@@ -282,7 +282,7 @@ const tracker = {
     updatePlayerOnMap(name, x, z, yaw, playerDim) {
         if (typeof map === 'undefined') return;
         
-        if (playerDim !== currentDimension) {
+        if (playerDim !== window.currentDimension) {
             this.removePlayer(name);
             return;
         }

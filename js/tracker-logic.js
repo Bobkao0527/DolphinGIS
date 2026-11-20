@@ -8,6 +8,9 @@ const tracker = {
     playerMarkers: {},
     onlinePlayers: {},
     statusEl: null,
+    syncTimer: null,
+    isFetching: false,
+    _visibilityBound: false,
     
     init() {
         console.log("[DolphinGIS] Tracker: Connecting to Oracle Cloud API...");
@@ -91,11 +94,14 @@ const tracker = {
         players.forEach(player => {
             const item = document.createElement('div');
             item.className = 'player-menu-item';
+            const escape = window.escapeHtml || ((s) => String(s ?? ''));
+            const safeName = escape(player.name);
+            const safeDim = escape((player.dim || 'overworld').toUpperCase());
             item.innerHTML = `
-                <img class="player-avatar" src="https://minotar.net/helm/${encodeURIComponent(player.name)}/32" alt="${player.name}" onerror="this.onerror=null; this.src='https://minotar.net/avatar/char/32';">
+                <img class="player-avatar" src="https://minotar.net/helm/${encodeURIComponent(player.name)}/32" alt="${safeName}" onerror="this.onerror=null; this.src='https://minotar.net/avatar/char/32';">
                 <div class="player-menu-name">
-                    <span>${player.name}</span>
-                    <span class="player-menu-dim">${player.dim.toUpperCase()}</span>
+                    <span>${safeName}</span>
+                    <span class="player-menu-dim">${safeDim}</span>
                 </div>
             `;
             item.addEventListener('click', () => {
@@ -103,7 +109,8 @@ const tracker = {
                     switchMapDimension(player.dim);
                 }
                 if (typeof map !== 'undefined' && player.x != null && player.z != null) {
-                    const playerY = Number.isFinite(Number(player.y)) ? Number(player.y) : 120;
+                    const defaultY = window.dolphinUtils ? window.dolphinUtils.getSafeDefaultY(player.dim) : 120;
+                    const playerY = Number.isFinite(Number(player.y)) ? Number(player.y) : defaultY;
                     goToLocation(player.x, playerY, player.z, player.name, '在線玩家', '在線玩家', player.name, player.dim);
                 }
                 const panel = document.getElementById('player-menu-panel');
@@ -114,7 +121,18 @@ const tracker = {
     },
 
     async startSync() {
+        const scheduleNext = () => {
+            clearTimeout(this.syncTimer);
+            // 分頁退至背景時降低輪詢頻率，切回前景再恢復 500ms 高頻同步
+            const delay = document.hidden ? 5000 : 500;
+            this.syncTimer = setTimeout(fetchUpdates, delay);
+        };
+
         const fetchUpdates = async () => {
+            if (this.isFetching) return;
+            this.isFetching = true;
+            clearTimeout(this.syncTimer);
+
             try {
                 const response = await fetch(`${API_URL}?nocache=${Date.now()}`);
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -134,13 +152,14 @@ const tracker = {
                             const resolvedDim = (typeof matchDimension === 'function') 
                                 ? matchDimension(p.dim) 
                                 : 'overworld';
+                            const defaultY = window.dolphinUtils ? window.dolphinUtils.getSafeDefaultY(resolvedDim) : 120;
 
                             activePlayersThisTick.add(playerName);
                             
                             this.onlinePlayers[playerName] = {
                                 name: playerName,
                                 x: p.x,
-                                y: Number.isFinite(Number(p.y)) ? Number(p.y) : 120,
+                                y: Number.isFinite(Number(p.y)) ? Number(p.y) : defaultY,
                                 z: p.z,
                                 ts: p.ts,
                                 dim: resolvedDim, 
@@ -172,9 +191,21 @@ const tracker = {
             } catch (error) {
                 console.error("[DolphinGIS] 同步失敗:", error);
                 this.updateStatusUI(false);
+            } finally {
+                this.isFetching = false;
+                scheduleNext();
             }
-            setTimeout(fetchUpdates, 500); 
         };
+
+        if (!this._visibilityBound) {
+            this._visibilityBound = true;
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden) {
+                    clearTimeout(this.syncTimer);
+                    fetchUpdates();
+                }
+            });
+        }
         
         fetchUpdates();
     },
@@ -184,7 +215,9 @@ const tracker = {
     },
 
     createPlayerIcon(name, yaw) {
-        const avatarUrl = `https://minotar.net/helm/${name}/32`;
+        const escape = window.escapeHtml || ((s) => String(s ?? ''));
+        const safeName = escape(name);
+        const avatarUrl = `https://minotar.net/helm/${encodeURIComponent(name)}/32`;
         const correctedYaw = (yaw + 180) % 360;
         
         return L.divIcon({
@@ -226,7 +259,7 @@ const tracker = {
                             display: block; 
                             border-radius: 50%;
                          " 
-                         alt="${name}" 
+                         alt="${safeName}" 
                          onerror="this.onerror=null; this.src='https://minotar.net/avatar/char/32';">
                 </div>
             `,
@@ -281,6 +314,8 @@ const tracker = {
         }
     }
 };
+
+window.tracker = tracker;
 
 document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {

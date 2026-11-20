@@ -4,6 +4,7 @@
  */
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { pickVoxelTerrain } from "./raycast-3d.js";
 
 const VERTEX_SHADER = `
   in uint aCornerId;
@@ -142,6 +143,8 @@ class Dolphin3DEngine {
     this.loadingDim = null;
     this.pendingFocusTarget = null;
     this.currentEpoch = 0;
+    this.manifestLoaded = false;
+    this.enteredFrom2D = null;
     this.worldOrigin = [-832, 58, 320];
 
     this.renderMode = "unlit";
@@ -160,6 +163,7 @@ class Dolphin3DEngine {
     this.activeFetches = 0;
 
     this.workers = [];
+    this.workerRestarts = [];
     this.workerNext = 0;
     this.reqSeq = 1;
     this.pendingJobs = new Map();
@@ -174,7 +178,23 @@ class Dolphin3DEngine {
 
     this.buildingLabelPool = new Map();
     this.playerLabelPool = new Map();
+    this.cachedTopBuildings = [];
+    this.lastBldgScan = { x: Infinity, z: Infinity, dim: null, count: -1 };
+    this.lastCoordText = "";
+    this.lastDimText = "";
     this.activeCardData = null;
+
+    this.raycaster = new THREE.Raycaster();
+    this.pointerNdc = new THREE.Vector2();
+    this.selectedPoint = null;
+    this.hoverPoint = null;
+    this.pickTeleportMode = false;
+    this.pointerDownInfo = null;
+    this.activePointers = new Set();
+    this.hoverRafPending = false;
+    this.lastHoverClient = null;
+    this.selectionMarker = null;
+    this.hoverMarker = null;
 
     this.tmpVec = new THREE.Vector3();
     this.forwardVec = new THREE.Vector3();
@@ -232,20 +252,129 @@ class Dolphin3DEngine {
     };
 
     const workerCount = cfg.workerCount || 3;
+    this.workerRestarts = new Array(workerCount).fill(0);
     for (let i = 0; i < workerCount; i++) {
-      const w = new Worker("./js/vxq-worker.js");
-      w.onmessage = (e) => {
-        const msg = e.data;
-        const job = this.pendingJobs.get(msg.id);
-        if (!job) return;
-        this.pendingJobs.delete(msg.id);
-        if (msg.ok) job.resolve(msg);
-        else job.reject(new Error(msg.error));
-      };
-      this.workers.push(w);
+      this.workers.push(this.createWorker(i));
     }
 
+    const radiusSlider = document.getElementById("radius3d-slider");
+    const radiusVal = document.getElementById("radius3d-val");
+    if (radiusSlider) radiusSlider.value = String(this.cullRadius);
+    if (radiusVal) radiusVal.textContent = `${this.cullRadius} 格`;
+
+    this.initPickMarkers();
     this.bindUIEvents();
+    this.syncTargetTeleportButton();
+  }
+
+  initPickMarkers() {
+    const selectionGroup = new THREE.Group();
+    const selOutline = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(1.04, 1.04, 1.04)),
+      new THREE.LineBasicMaterial({ color: 0x55ff55 })
+    );
+    selOutline.renderOrder = 5;
+    selectionGroup.add(selOutline);
+
+    const landingGroup = new THREE.Group();
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.22, 0.48, 24),
+      new THREE.MeshBasicMaterial({
+        color: 0xffcc00,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.92,
+        depthWrite: false,
+      })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.06;
+    ring.renderOrder = 6;
+
+    const beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.08, 0.08, 12, 8),
+      new THREE.MeshBasicMaterial({
+        color: 0xffcc00,
+        transparent: true,
+        opacity: 0.65,
+        depthWrite: false,
+      })
+    );
+    beam.position.y = 6.06;
+    beam.renderOrder = 6;
+
+    const diamond = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.45, 0),
+      new THREE.MeshBasicMaterial({ color: 0x55ff55 })
+    );
+    diamond.position.y = 12.6;
+    diamond.renderOrder = 6;
+
+    landingGroup.add(ring, beam, diamond);
+    selectionGroup.add(landingGroup);
+    selectionGroup.userData = { blockOutline: selOutline, landingGroup };
+    selectionGroup.visible = false;
+    this.scene.add(selectionGroup);
+    this.selectionMarker = selectionGroup;
+
+    const hoverGroup = new THREE.Group();
+    const hoverOutline = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(1.06, 1.06, 1.06)),
+      new THREE.LineBasicMaterial({ color: 0xffcc00 })
+    );
+    hoverOutline.renderOrder = 5;
+
+    const landingCube = new THREE.Mesh(
+      new THREE.BoxGeometry(1.02, 1.02, 1.02),
+      new THREE.MeshBasicMaterial({
+        color: 0x55ff55,
+        transparent: true,
+        opacity: 0.24,
+        depthWrite: false,
+      })
+    );
+    landingCube.renderOrder = 6;
+
+    hoverGroup.add(hoverOutline, landingCube);
+    hoverGroup.userData = { blockOutline: hoverOutline, landingCube };
+    hoverGroup.visible = false;
+    this.scene.add(hoverGroup);
+    this.hoverMarker = hoverGroup;
+  }
+
+  createWorker(index) {
+    const w = new Worker("./js/vxq-worker.js");
+    w.onmessage = (e) => {
+      const msg = e.data;
+      const job = this.pendingJobs.get(msg.id);
+      if (!job) return;
+      this.pendingJobs.delete(msg.id);
+      if (msg.ok) job.resolve(msg);
+      else job.reject(new Error(msg.error));
+    };
+
+    const handleWorkerFailure = (err) => {
+      const message = err?.message || "3D 解析 Worker 發生異常";
+      for (const [jobId, job] of this.pendingJobs.entries()) {
+        if (job.workerIndex === index) {
+          this.pendingJobs.delete(jobId);
+          job.reject(new Error(message));
+        }
+      }
+      if (this.workerRestarts[index] < 3) {
+        this.workerRestarts[index]++;
+        try {
+          w.terminate();
+        } catch (_e) {
+          // 忽略終止錯誤
+        }
+        this.workers[index] = this.createWorker(index);
+      }
+    };
+
+    w.onerror = handleWorkerFailure;
+    w.onmessageerror = handleWorkerFailure;
+    return w;
   }
 
   bindUIEvents() {
@@ -253,8 +382,62 @@ class Dolphin3DEngine {
     this.controls.addEventListener("change", () => this.markDirty(2));
     this.renderer.domElement.addEventListener("wheel", () => this.markDirty(4), { passive: true });
 
+    const canvas = this.renderer.domElement;
+    canvas.addEventListener("pointerdown", (e) => {
+      this.activePointers.add(e.pointerId);
+      if (this.activePointers.size > 1 || e.button !== 0) {
+        this.pointerDownInfo = null;
+        return;
+      }
+      this.pointerDownInfo = {
+        x: e.clientX,
+        y: e.clientY,
+        pointerId: e.pointerId,
+      };
+    });
+
+    canvas.addEventListener("pointermove", (e) => {
+      if (this.pointerDownInfo && this.pointerDownInfo.pointerId === e.pointerId) {
+        if (Math.hypot(e.clientX - this.pointerDownInfo.x, e.clientY - this.pointerDownInfo.y) > 5) {
+          this.pointerDownInfo = null;
+        }
+      }
+      if (this.pickTeleportMode && this.activePointers.size === 0 && e.buttons === 0) {
+        this.scheduleHoverPreview(e.clientX, e.clientY);
+      }
+    });
+
+    canvas.addEventListener("pointerup", (e) => {
+      this.activePointers.delete(e.pointerId);
+      const down = this.pointerDownInfo;
+      if (down && down.pointerId === e.pointerId) {
+        this.pointerDownInfo = null;
+        if (e.button === 0 && Math.hypot(e.clientX - down.x, e.clientY - down.y) <= 5) {
+          this.handleCanvasClick(e.clientX, e.clientY);
+        }
+      }
+    });
+
+    canvas.addEventListener("pointercancel", (e) => {
+      this.activePointers.delete(e.pointerId);
+      this.pointerDownInfo = null;
+    });
+
+    canvas.addEventListener("pointerleave", () => {
+      if (this.pickTeleportMode) {
+        this.hoverPoint = null;
+        this.lastHoverClient = null;
+        if (this.hoverMarker) this.hoverMarker.visible = false;
+        this.markDirty(2);
+      }
+    });
+
     window.addEventListener("keydown", (e) => {
       if (!this.active) return;
+      if (e.code === "Escape" && this.pickTeleportMode) {
+        this.setPickTeleportMode(false);
+        return;
+      }
       const tag = document.activeElement?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       this.keys.add(e.code);
@@ -335,16 +518,230 @@ class Dolphin3DEngine {
     });
 
     document.getElementById("tp-3d-target-btn")?.addEventListener("click", () => {
-      const mc = this.localToMc(this.controls.target);
-      const safeY = Math.max(mc.y, window.DOLPHIN_3D_CONFIG.dimensions[this.currentDim]?.defaultY || 90);
-      if (window.teleportSystem && typeof window.teleportSystem.teleportTo === "function") {
-        window.teleportSystem.teleportTo(mc.x, safeY, mc.z, this.currentDim);
+      if (!this.manifestLoaded) {
+        if (window.teleportSystem && typeof window.teleportSystem.showNotification === "function") {
+          window.teleportSystem.showNotification("3D 地形尚未載入完成，請稍候再選點。", "info");
+        }
+        return;
       }
+      if (this.pickTeleportMode) {
+        this.setPickTeleportMode(false);
+        return;
+      }
+      if (this.selectedPoint && this.selectedPoint.dim === this.currentDim) {
+        const p = this.selectedPoint;
+        if (window.teleportSystem && typeof window.teleportSystem.teleportTo === "function") {
+          window.teleportSystem.teleportTo(p.x, p.y, p.z, this.currentDim);
+        }
+        return;
+      }
+      this.setPickTeleportMode(true);
+      if (window.teleportSystem && typeof window.teleportSystem.showNotification === "function") {
+        window.teleportSystem.showNotification(
+          "請點擊 3D 地形方塊，將立即傳送至該點 Y+1 座標（按 ESC 取消）。",
+          "info"
+        );
+      }
+    });
+
+    document.addEventListener("auth-success", () => this.syncTargetTeleportButton());
+    document.addEventListener("teleport-loading-change", (e) => {
+      this.syncTargetTeleportButton(Boolean(e.detail?.loading));
     });
 
     document.getElementById("popup3d-close")?.addEventListener("click", () => {
       this.hideInfoCard();
     });
+  }
+
+  syncTargetTeleportButton(loading = false) {
+    const btn = document.getElementById("tp-3d-target-btn");
+    if (!btn) return;
+    const isSending = loading || Boolean(window.teleportSystem && window.teleportSystem.isSending);
+    if (!window.authSystem || !window.authSystem.isLoggedIn()) {
+      btn.disabled = true;
+      btn.classList.remove("is-picking");
+      btn.textContent = "🔒 登入解鎖傳送";
+      return;
+    }
+    if (isSending) {
+      btn.disabled = true;
+      btn.classList.remove("is-picking");
+      btn.textContent = "傳送中...";
+      return;
+    }
+    if (this.pickTeleportMode) {
+      btn.disabled = false;
+      btn.classList.add("is-picking");
+      btn.textContent = "🎯 請點擊 3D 地形（ESC 取消）";
+      return;
+    }
+    btn.classList.remove("is-picking");
+    btn.disabled = false;
+    if (this.selectedPoint && this.selectedPoint.dim === this.currentDim) {
+      const p = this.selectedPoint;
+      btn.textContent = `⚡️ 傳送至點擊點 (${p.x}, ${p.y}, ${p.z})`;
+      return;
+    }
+    btn.textContent = "🎯 點選 3D 地形傳送 (Y+1)";
+  }
+
+  pickTerrainAtClientPos(clientX, clientY) {
+    if (!this.active || !this.manifestLoaded || !this.renderer) return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+
+    this.pointerNdc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointerNdc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+
+    this.camera.updateMatrixWorld();
+    this.raycaster.setFromCamera(this.pointerNdc, this.camera);
+    const { origin, direction } = this.raycaster.ray;
+
+    return pickVoxelTerrain(
+      this.tileEntries,
+      [origin.x, origin.y, origin.z],
+      [direction.x, direction.y, direction.z],
+      {
+        nearT: this.camera.near,
+        showTranslucent: this.showTranslucent,
+        worldOrigin: this.worldOrigin,
+        cutMode: this.sharedUniforms.uCutMode.value,
+        clipY: this.sharedUniforms.uClipY.value,
+      }
+    );
+  }
+
+  updatePickMarker(markerGroup, hit) {
+    if (!markerGroup || !hit) return;
+    const { blockOutline, landingGroup, landingCube } = markerGroup.userData;
+    if (blockOutline) {
+      blockOutline.position.copy(
+        this.mcToLocal(hit.blockX + 0.5, hit.blockY + 0.5, hit.blockZ + 0.5)
+      );
+    }
+    if (landingGroup) {
+      landingGroup.position.copy(this.mcToLocal(hit.x + 0.5, hit.y, hit.z + 0.5));
+    }
+    if (landingCube) {
+      landingCube.position.copy(this.mcToLocal(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5));
+    }
+    markerGroup.visible = true;
+  }
+
+  selectTerrainPoint(hit) {
+    if (!hit) return;
+    this.selectedPoint = { ...hit, dim: this.currentDim };
+    this.updatePickMarker(this.selectionMarker, hit);
+    const dimLabel = window.DOLPHIN_3D_CONFIG.dimensions[this.currentDim]?.label || this.currentDim;
+    this.showInfoCard(
+      {
+        badge: `[${dimLabel}] 3D 地形點擊座標`,
+        title: "點擊傳送目標",
+        addr: `點擊方塊 (${hit.blockX}, ${hit.blockY}, ${hit.blockZ}) → 落點 Y+1`,
+        x: hit.x,
+        y: hit.y,
+        z: hit.z,
+        dim: this.currentDim,
+      },
+      { preserveSelection: true }
+    );
+    this.syncTargetTeleportButton();
+    this.markDirty(2);
+  }
+
+  clearSelectionMarker() {
+    this.selectedPoint = null;
+    if (this.selectionMarker) this.selectionMarker.visible = false;
+    this.syncTargetTeleportButton();
+    if (this.active) this.markDirty(2);
+  }
+
+  setPickTeleportMode(enabled) {
+    const next = Boolean(enabled);
+    if (this.pickTeleportMode === next) return;
+    this.pickTeleportMode = next;
+    if (this.containerEl) {
+      this.containerEl.classList.toggle("picking-mode", next);
+    }
+    if (!next) {
+      this.hoverPoint = null;
+      this.lastHoverClient = null;
+      if (this.hoverMarker) this.hoverMarker.visible = false;
+    }
+    this.syncTargetTeleportButton();
+    if (this.active) this.markDirty(2);
+  }
+
+  scheduleHoverPreview(clientX, clientY) {
+    this.lastHoverClient = { x: clientX, y: clientY };
+    if (this.hoverRafPending) return;
+    this.hoverRafPending = true;
+    requestAnimationFrame(() => {
+      this.hoverRafPending = false;
+      if (!this.pickTeleportMode || !this.active || !this.manifestLoaded || !this.lastHoverClient) {
+        return;
+      }
+      const { x, y } = this.lastHoverClient;
+      const hit = this.pickTerrainAtClientPos(x, y);
+      const prev = this.hoverPoint;
+      const changed =
+        Boolean(hit) !== Boolean(prev) ||
+        (hit &&
+          prev &&
+          (hit.blockX !== prev.blockX ||
+            hit.blockY !== prev.blockY ||
+            hit.blockZ !== prev.blockZ ||
+            hit.x !== prev.x ||
+            hit.y !== prev.y ||
+            hit.z !== prev.z));
+
+      this.hoverPoint = hit ? { ...hit, dim: this.currentDim } : null;
+      if (hit) {
+        this.updatePickMarker(this.hoverMarker, hit);
+      } else if (this.hoverMarker) {
+        this.hoverMarker.visible = false;
+      }
+      if (changed) this.markDirty(2);
+    });
+  }
+
+  handleCanvasClick(clientX, clientY) {
+    const hit = this.pickTerrainAtClientPos(clientX, clientY);
+    if (hit) {
+      this.selectTerrainPoint(hit);
+      if (this.pickTeleportMode) {
+        this.setPickTeleportMode(false);
+        if (window.teleportSystem && typeof window.teleportSystem.teleportTo === "function") {
+          window.teleportSystem.teleportTo(hit.x, hit.y, hit.z, this.currentDim);
+        }
+      }
+      return;
+    }
+
+    if (
+      this.pickTeleportMode &&
+      window.teleportSystem &&
+      typeof window.teleportSystem.showNotification === "function"
+    ) {
+      window.teleportSystem.showNotification(
+        "未點擊到 3D 地形方塊，請對準方塊表面點擊（按 ESC 取消）。",
+        "info"
+      );
+    }
+  }
+
+  updateCoordsHUD(dimText, xyzText) {
+    const dimEl = document.getElementById("current-dim-text");
+    const xyzEl = document.getElementById("coords-xyz");
+    if (dimEl && dimEl.textContent !== dimText) {
+      this.lastDimText = dimText;
+      dimEl.textContent = dimText;
+    }
+    if (xyzEl && xyzEl.textContent !== xyzText) {
+      this.lastCoordText = xyzText;
+      xyzEl.textContent = xyzText;
+    }
   }
 
   mcToLocal(mx, my, mz) {
@@ -454,6 +851,8 @@ class Dolphin3DEngine {
     tile.group = null;
     tile.solidMesh = null;
     tile.transMesh = null;
+    tile.tileOffset = null;
+    tile.boundingBox = null;
     tile.rawBytes = 0;
     tile.state = "unloaded";
   }
@@ -461,9 +860,15 @@ class Dolphin3DEngine {
   decodeInWasmWorker(url, gzip) {
     return new Promise((resolve, reject) => {
       const id = this.reqSeq++;
-      this.pendingJobs.set(id, { resolve, reject });
-      const worker = this.workers[this.workerNext++ % this.workers.length];
-      worker.postMessage({ id, url, gzip });
+      const workerIndex = this.workerNext++ % this.workers.length;
+      const worker = this.workers[workerIndex];
+      this.pendingJobs.set(id, { resolve, reject, workerIndex });
+      try {
+        worker.postMessage({ id, url, gzip });
+      } catch (err) {
+        this.pendingJobs.delete(id);
+        reject(err);
+      }
     });
   }
 
@@ -475,7 +880,7 @@ class Dolphin3DEngine {
     try {
       const url = `${this.vxqBaseUrl}/${dimId}/${tile.meta.file}`;
       const decoded = await this.decodeInWasmWorker(url, tile.meta.gzip);
-      if (epoch !== this.currentEpoch) return;
+      if (!this.active || epoch !== this.currentEpoch) return;
 
       const group = new THREE.Group();
       let solidMesh = null;
@@ -502,10 +907,20 @@ class Dolphin3DEngine {
         group.add(transMesh);
       }
 
+      const [ax0, ay0, az0, ax1, ay1, az1] = decoded.aabb;
+      const [ox, oy, oz] = decoded.tileOffset;
+
       tile.group = group;
       tile.solidMesh = solidMesh;
       tile.transMesh = transMesh;
+      tile.tileOffset = decoded.tileOffset;
+      tile.boundingBox = {
+        min: { x: ax0 + ox - 0.01, y: ay0 + oy - 0.01, z: az0 + oz - 0.01 },
+        max: { x: ax1 + ox + 0.01, y: ay1 + oy + 0.01, z: az1 + oz + 0.01 },
+      };
       tile.rawBytes = decoded.rawBytes;
+      tile.retryCount = 0;
+      tile.nextRetryAt = 0;
       tile.state = "loaded";
       tile.lastUsed = performance.now();
 
@@ -518,13 +933,27 @@ class Dolphin3DEngine {
       this.markDirty(2);
     } catch (err) {
       if (epoch === this.currentEpoch) {
-        tile.state = "unloaded";
+        tile.retryCount = (tile.retryCount || 0) + 1;
+        if (tile.retryCount >= 3) {
+          tile.state = "failed";
+        } else {
+          tile.state = "unloaded";
+          const delay = 1500 * Math.pow(2, tile.retryCount - 1);
+          tile.nextRetryAt = performance.now() + delay;
+          setTimeout(() => {
+            if (this.active && epoch === this.currentEpoch) {
+              this.pumpStreamingQueue();
+            }
+          }, delay);
+        }
         console.error("[DolphinGIS-3D] 載入地磚失敗:", tile.meta.file, err);
       }
     } finally {
       if (epoch === this.currentEpoch) {
-        this.activeFetches--;
-        this.pumpStreamingQueue();
+        this.activeFetches = Math.max(0, this.activeFetches - 1);
+        if (this.active) {
+          this.pumpStreamingQueue();
+        }
       }
     }
   }
@@ -563,15 +992,16 @@ class Dolphin3DEngine {
   }
 
   pumpStreamingQueue() {
-    if (!this.vxqBaseUrl) return;
+    if (!this.active || !this.vxqBaseUrl) return;
     this.updateDesiredTiles();
     const epoch = this.currentEpoch;
     const dimId = this.currentDim;
     const maxConc = window.DOLPHIN_3D_CONFIG.maxConcurrentFetch || 6;
+    const now = performance.now();
 
     if (this.activeFetches < maxConc) {
       const candidates = this.tileEntries
-        .filter((t) => t._desired && t.state === "unloaded")
+        .filter((t) => t._desired && t.state === "unloaded" && now >= (t.nextRetryAt || 0))
         .sort((a, b) => a._distSq - b._distSq);
 
       for (const tile of candidates) {
@@ -605,13 +1035,16 @@ class Dolphin3DEngine {
 
     let desiredCount = 0;
     let desiredLoaded = 0;
+    let failedCount = 0;
     for (const tile of this.tileEntries) {
       if (tile._desired) {
         desiredCount++;
         if (tile.state === "loaded") desiredLoaded++;
+        else if (tile.state === "failed") failedCount++;
       }
     }
-    const pct = desiredCount > 0 ? Math.round((desiredLoaded / desiredCount) * 100) : 100;
+    const desiredHandled = desiredLoaded + failedCount;
+    const pct = desiredCount > 0 ? Math.round((desiredHandled / desiredCount) * 100) : 100;
     const fillEl = document.getElementById("progress3d-fill");
     if (fillEl) fillEl.style.width = `${pct}%`;
 
@@ -619,8 +1052,12 @@ class Dolphin3DEngine {
     if (statusEl) {
       if (!this.vxqBaseUrl) {
         statusEl.textContent = "未設定 MAP3D_URL 環境變數或 ?map3d= 位址";
-      } else if (this.activeFetches > 0 || desiredLoaded < desiredCount) {
+      } else if (!this.manifestLoaded) {
+        statusEl.textContent = "等待地形清單載入...";
+      } else if (this.activeFetches > 0 || desiredHandled < desiredCount) {
         statusEl.textContent = `Rust WASM 背景串流中：${desiredLoaded}/${desiredCount} 塊 (${pct}%)`;
+      } else if (failedCount > 0) {
+        statusEl.textContent = `就緒：視距內 ${visibleCount} 塊（${failedCount} 塊載入失敗）`;
       } else {
         statusEl.textContent = `就緒：視距內 ${visibleCount} 塊（已省去 ${totalTiles - loadedCount} 塊下載）`;
       }
@@ -632,6 +1069,7 @@ class Dolphin3DEngine {
     this.currentDim = dimId;
     this.loadingDim = dimId;
     this.pendingFocusTarget = focusTarget;
+    this.manifestLoaded = false;
     const epoch = ++this.currentEpoch;
 
     this.scene.background.setHex(dimCfg.sky);
@@ -655,12 +1093,15 @@ class Dolphin3DEngine {
     this.networkFetchedGzBytes = 0;
     this.networkFetchedCount = 0;
     this.activeFetches = 0;
+    this.cachedTopBuildings = [];
+    this.lastBldgScan = { x: Infinity, z: Infinity, dim: null, count: -1 };
     this.clearLabelPools();
+    this.setPickTeleportMode(false);
     this.hideInfoCard();
 
     if (!this.vxqBaseUrl) {
       this.vxqBaseUrl = await window.DOLPHIN_3D_CONFIG.resolveVxqBaseUrl();
-      if (epoch !== this.currentEpoch) return;
+      if (!this.active || epoch !== this.currentEpoch) return;
     }
 
     if (!this.vxqBaseUrl) {
@@ -674,22 +1115,27 @@ class Dolphin3DEngine {
 
     try {
       const res = await fetch(`${this.vxqBaseUrl}/${dimId}/manifest.json`, { mode: "cors" });
-      if (epoch !== this.currentEpoch) return;
+      if (!this.active || epoch !== this.currentEpoch) return;
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       this.manifestData = await res.json();
-      if (epoch !== this.currentEpoch) return;
+      if (!this.active || epoch !== this.currentEpoch) return;
 
       this.worldOrigin = this.manifestData.worldOrigin;
       this.sharedUniforms.uWorldOriginY.value = this.worldOrigin[1];
+      this.manifestLoaded = true;
 
       for (const meta of this.manifestData.tiles) {
         this.tileEntries.push({
           meta,
           centerVec: new THREE.Vector3(...meta.center),
           state: "unloaded",
+          retryCount: 0,
+          nextRetryAt: 0,
           group: null,
           solidMesh: null,
           transMesh: null,
+          tileOffset: null,
+          boundingBox: null,
           rawBytes: 0,
           lastUsed: 0,
           _distSq: Infinity,
@@ -711,6 +1157,7 @@ class Dolphin3DEngine {
     } catch (err) {
       if (epoch === this.currentEpoch) {
         this.loadingDim = null;
+        this.manifestLoaded = false;
         if (statusEl) statusEl.textContent = `3D 端點連線失敗：${err.message || err}`;
       }
     }
@@ -744,7 +1191,10 @@ class Dolphin3DEngine {
     this.markDirty(2);
   }
 
-  showInfoCard(data) {
+  showInfoCard(data, options = {}) {
+    if (!options.preserveSelection) {
+      this.clearSelectionMarker();
+    }
     this.activeCardData = data;
     const card = document.getElementById("popup-3d");
     if (!card) return;
@@ -769,6 +1219,7 @@ class Dolphin3DEngine {
     this.activeCardData = null;
     const card = document.getElementById("popup-3d");
     if (card) card.style.display = "none";
+    this.clearSelectionMarker();
   }
 
   clearLabelPools() {
@@ -786,27 +1237,44 @@ class Dolphin3DEngine {
 
     const buildings = window.getBuildingData();
     const mc = this.localToMc(this.controls.target);
-    const maxDistSq = 550 * 550;
-    const candidates = [];
+    const dxScan = mc.x - this.lastBldgScan.x;
+    const dzScan = mc.z - this.lastBldgScan.z;
+    const needRescan =
+      this.lastBldgScan.dim !== this.currentDim ||
+      this.lastBldgScan.count !== buildings.length ||
+      dxScan * dxScan + dzScan * dzScan > 20 * 20;
 
-    for (const b of buildings) {
-      const bName = (b.name || "").trim();
-      if (!bName || bName.toLowerCase() === "none" || bName === "-" || bName === "無") continue;
-      const bDim = typeof window.getBuildingDimension === "function"
-        ? window.getBuildingDimension(b.id)
-        : "overworld";
-      if (bDim !== this.currentDim) continue;
-      const dx = b.x - mc.x;
-      const dz = b.z - mc.z;
-      const d2 = dx * dx + dz * dz;
-      if (d2 <= maxDistSq) candidates.push({ b, d2 });
+    if (needRescan) {
+      const maxDistSq = 550 * 550;
+      const candidates = [];
+
+      for (const b of buildings) {
+        const bName = (b.name || "").trim();
+        if (!bName || bName.toLowerCase() === "none" || bName === "-" || bName === "無") continue;
+        const bDim = typeof window.getBuildingDimension === "function"
+          ? window.getBuildingDimension(b.id)
+          : "overworld";
+        if (bDim !== this.currentDim) continue;
+        const dx = b.x - mc.x;
+        const dz = b.z - mc.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 <= maxDistSq) candidates.push({ b, d2 });
+      }
+
+      candidates.sort((a, b) => a.d2 - b.d2);
+      this.cachedTopBuildings = candidates.slice(0, 22).map((item) => item.b);
+      this.lastBldgScan = {
+        x: mc.x,
+        z: mc.z,
+        dim: this.currentDim,
+        count: buildings.length,
+      };
     }
 
-    candidates.sort((a, b) => a.d2 - b.d2);
-    const topItems = candidates.slice(0, 22);
+    const topItems = this.cachedTopBuildings;
     const keepKeys = new Set();
 
-    for (const { b } of topItems) {
+    for (const b of topItems) {
       const key = `${b.id || b.name}_${b.x}_${b.z}`;
       keepKeys.add(key);
       let entry = this.buildingLabelPool.get(key);
@@ -834,7 +1302,12 @@ class Dolphin3DEngine {
 
       const localPos = this.mcToLocal(b.x, b.y + 18, b.z);
       this.tmpVec.copy(localPos).project(this.camera);
-      if (this.tmpVec.z > 1 || this.tmpVec.z < -1) {
+      if (
+        this.tmpVec.z > 1 ||
+        this.tmpVec.z < -1 ||
+        Math.abs(this.tmpVec.x) > 1.15 ||
+        Math.abs(this.tmpVec.y) > 1.15
+      ) {
         entry.el.style.display = "none";
       } else {
         entry.el.style.display = "block";
@@ -866,7 +1339,21 @@ class Dolphin3DEngine {
       if (!entry) {
         const el = document.createElement("div");
         el.className = "label-3d-player";
-        el.innerHTML = `<img src="https://minotar.net/helm/${encodeURIComponent(p.name)}/24" alt="${p.name}" onerror="this.onerror=null;this.src='https://minotar.net/avatar/char/24';"><span>${p.name}</span>`;
+
+        const img = document.createElement("img");
+        img.src = `https://minotar.net/helm/${encodeURIComponent(p.name)}/24`;
+        img.alt = p.name;
+        img.onerror = () => {
+          img.onerror = null;
+          img.src = "https://minotar.net/avatar/char/24";
+        };
+
+        const nameSpan = document.createElement("span");
+        nameSpan.textContent = p.name;
+
+        el.appendChild(img);
+        el.appendChild(nameSpan);
+
         el.addEventListener("click", (ev) => {
           ev.stopPropagation();
           const curP = entry.player;
@@ -889,7 +1376,12 @@ class Dolphin3DEngine {
 
       const localPos = this.mcToLocal(p.x, (Number.isFinite(p.y) ? p.y : 80) + 4, p.z);
       this.tmpVec.copy(localPos).project(this.camera);
-      if (this.tmpVec.z > 1 || this.tmpVec.z < -1) {
+      if (
+        this.tmpVec.z > 1 ||
+        this.tmpVec.z < -1 ||
+        Math.abs(this.tmpVec.x) > 1.15 ||
+        Math.abs(this.tmpVec.y) > 1.15
+      ) {
         entry.el.style.display = "none";
       } else {
         entry.el.style.display = "flex";
@@ -968,13 +1460,20 @@ class Dolphin3DEngine {
     this.updateBuildingLabels();
     this.updatePlayerLabels();
 
-    const mc = this.localToMc(this.controls.target);
-    const coordEl = document.getElementById("coords");
-    if (coordEl) {
-      coordEl.innerHTML = `
-        <span class="dim-display" id="current-dim-text">3D VIEW · ${this.currentDim.toUpperCase()}</span>
-        <span>X: ${mc.x}, Y: ${mc.y}, Z: ${mc.z}</span>
-      `;
+    if (this.pickTeleportMode && this.hoverPoint && this.manifestLoaded) {
+      const p = this.hoverPoint;
+      this.updateCoordsHUD(
+        `3D PICK · ${this.currentDim.toUpperCase()}`,
+        `落點 (Y+1) X: ${p.x}, Y: ${p.y}, Z: ${p.z}`
+      );
+    } else {
+      const mc = this.manifestLoaded
+        ? this.localToMc(this.controls.target)
+        : (this.enteredFrom2D || { x: 0, y: 0, z: 0 });
+      const xyzLabel = this.manifestLoaded
+        ? `X: ${mc.x}, Y: ${mc.y}, Z: ${mc.z}`
+        : `X: ${mc.x}, Z: ${mc.z}`;
+      this.updateCoordsHUD(`3D VIEW · ${this.currentDim.toUpperCase()}`, xyzLabel);
     }
 
     const trisEl = document.getElementById("stat3d-tris");
@@ -1031,6 +1530,7 @@ class Dolphin3DEngine {
       }
     }
     focusY = Number.isFinite(Number(focusY)) ? Number(focusY) : dimCfg.defaultY;
+    this.enteredFrom2D = { x: Math.round(focusX), z: Math.round(focusZ), dim };
 
     if (typeof window.switchMapDimension === "function" && window.currentDimension !== dim) {
       window.switchMapDimension(dim, true);
@@ -1049,22 +1549,43 @@ class Dolphin3DEngine {
       this.toggleBtnEl.textContent = "🗺️ 返回 2D 地圖";
       this.toggleBtnEl.classList.add("is-3d");
     }
+    this.syncTargetTeleportButton();
 
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    await this.loadDimension(dim, { x: focusX, y: focusY, z: focusZ, offset: opts.offset || null });
-    if (opts.card) this.showInfoCard(opts.card);
+    await this.loadDimension(dim, {
+      x: focusX,
+      y: focusY,
+      z: focusZ,
+      offset: opts.offset || null,
+      card: opts.card || null,
+    });
+    if (!this.active || !this.manifestLoaded || this.currentDim !== dim) return;
     this.markDirty(4);
   }
 
   exit3D() {
     if (!this.initialized || !this.active) return;
-    const mc = this.localToMc(this.controls.target);
+    const hasManifest = this.manifestLoaded;
+    const mc = hasManifest
+      ? this.localToMc(this.controls.target)
+      : (this.enteredFrom2D || { x: 0, z: 0, dim: this.currentDim });
+
+    // 作廢背景進行中的載入請求與載入中地磚狀態
+    this.currentEpoch++;
+    this.loadingDim = null;
+    this.pendingFocusTarget = null;
+    this.activeFetches = 0;
+    for (const tile of this.tileEntries) {
+      if (tile.state === "loading") tile.state = "unloaded";
+    }
 
     this.active = false;
     this.rafRunning = false;
     this.flyAnim = null;
     this.keys.clear();
+    this.setPickTeleportMode(false);
     this.hideInfoCard();
+    this.clearSelectionMarker();
 
     this.containerEl.style.display = "none";
     this.panel3DEl.style.display = "none";
@@ -1079,16 +1600,12 @@ class Dolphin3DEngine {
     if (lm && typeof lm.invalidateSize === "function") {
       lm.closePopup();
       lm.invalidateSize();
-      lm.setView([-mc.z, mc.x], Math.max(lm.getZoom(), 1), { animate: false });
+      if (hasManifest) {
+        lm.setView([-mc.z, mc.x], Math.max(lm.getZoom(), 1), { animate: false });
+      }
     }
 
-    const coordEl = document.getElementById("coords");
-    if (coordEl) {
-      coordEl.innerHTML = `
-        <span class="dim-display" id="current-dim-text">DIMENSION: ${this.currentDim.toUpperCase()}</span>
-        <span>X: ${mc.x}, Z: ${mc.z}</span>
-      `;
-    }
+    this.updateCoordsHUD(`DIMENSION: ${this.currentDim.toUpperCase()}`, `X: ${mc.x}, Z: ${mc.z}`);
   }
 
   toggle3D() {
@@ -1112,11 +1629,11 @@ class Dolphin3DEngine {
       return;
     }
     const targetDim = dim || this.currentDim;
-    if (this.loadingDim === targetDim && !this.manifestData) {
+    if (this.loadingDim === targetDim && !this.manifestLoaded) {
       this.pendingFocusTarget = { x, y, z, offset: [95, 70, 105], card };
       return;
     }
-    if (targetDim !== this.currentDim) {
+    if (targetDim !== this.currentDim || !this.manifestLoaded) {
       this.loadDimension(targetDim, { x, y, z, offset: [95, 70, 105], card });
     } else {
       this.flyToCoords(x, y, z, false, [95, 70, 105]);
@@ -1125,6 +1642,7 @@ class Dolphin3DEngine {
   }
 
   refreshBuildings() {
+    this.lastBldgScan.count = -1;
     if (this.active) this.updateBuildingLabels();
   }
 

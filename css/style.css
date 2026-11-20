@@ -278,26 +278,26 @@ body, html {
 /* --- 在線玩家選單 --- */
 .player-menu-container {
     position: fixed;
-    left: 50px;
-    bottom: 100px;
+    left: 30px;
+    bottom: 96px;
     z-index: 1300;
 }
 
 .player-menu-toggle {
-    width: 44px;
-    height: 44px;
-    padding: 0;
-    border-radius: 50%;
+    min-height: 40px;
+    padding: 0 14px;
+    border-radius: 999px;
     border: 2px solid var(--border);
     background: var(--ui-panel);
     color: var(--accent);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 700;
     cursor: pointer;
     box-shadow: 0 4px 15px rgba(0,0,0,0.3);
     display: flex;
     align-items: center;
     justify-content: center;
+    white-space: nowrap;
 }
 
 .player-menu-toggle:hover {
@@ -307,8 +307,8 @@ body, html {
 
 .player-menu-panel {
     position: absolute;
-    left: 56px;
-    bottom: 0;
+    left: 0;
+    bottom: 50px;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -318,6 +318,8 @@ body, html {
     border-radius: 999px;
     box-shadow: 0 8px 25px rgba(0,0,0,0.6);
     min-height: 44px;
+    max-width: calc(100vw - 60px);
+    overflow-x: auto;
 }
 
 .player-menu-list {
@@ -595,9 +597,24 @@ body, html {
     font-weight: 700;
     cursor: pointer;
 }
-.panel3d-tp-btn:hover {
+.panel3d-tp-btn:hover:not(:disabled) {
     background: var(--player-accent);
     color: #000;
+}
+.panel3d-tp-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+.panel3d-tp-btn.is-picking {
+    background: rgba(85, 255, 85, 0.22);
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: 0 0 12px rgba(85, 255, 85, 0.28);
+}
+
+#map-3d.picking-mode,
+#map-3d.picking-mode canvas {
+    cursor: crosshair !important;
 }
 
 .panel3d-hint {
@@ -702,4 +719,66 @@ body, html {
 .enter-3d-btn:hover {
     background: var(--accent);
     color: #0b0b0b;
+}
+
+/* --- 窄螢幕 / 行動裝置 RWD --- */
+@media (max-width: 768px) {
+    .control-panel {
+        top: 12px;
+        left: 12px;
+        width: calc(100vw - 168px);
+        min-width: 190px;
+        max-width: 260px;
+        gap: 6px;
+    }
+
+    .info-box {
+        padding: 9px 12px;
+    }
+
+    .brand-title {
+        font-size: 15px;
+    }
+
+    #toggle-3d-wrap {
+        top: 12px;
+        right: 12px;
+    }
+
+    .toggle-3d-btn {
+        padding: 7px 11px;
+        font-size: 12px;
+    }
+
+    .panel-3d {
+        top: auto;
+        bottom: 12px;
+        right: 12px;
+        left: 12px;
+        width: auto;
+        max-height: 42vh;
+        padding: 10px 12px;
+    }
+
+    .coord-display {
+        left: 12px;
+        bottom: 12px;
+        padding: 7px 10px;
+        font-size: 13px;
+    }
+
+    .player-menu-container {
+        left: 12px;
+        bottom: 72px;
+    }
+
+    .player-menu-panel {
+        max-width: calc(100vw - 24px);
+    }
+
+    .popup-3d {
+        bottom: 12px;
+        width: calc(100vw - 36px);
+        max-width: 300px;
+    }
 }

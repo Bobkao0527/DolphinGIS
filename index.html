@@ -131,8 +131,8 @@
                 <span id="yclip3d-val">Y ≤ 112</span>
             </div>
         </div>
-        <button id="tp-3d-target-btn" class="panel3d-tp-btn" type="button">⚡️ 傳送至目前準心目標</button>
-        <div class="panel3d-hint">左鍵旋轉 ｜ 右鍵平移 ｜ 滾輪縮放 ｜ WASD 飛行</div>
+        <button id="tp-3d-target-btn" class="panel3d-tp-btn" type="button">🎯 點選 3D 地形傳送 (Y+1)</button>
+        <div class="panel3d-hint">左鍵輕點選點 ｜ 拖曳旋轉 ｜ 右鍵平移 ｜ 滾輪縮放 ｜ WASD 飛行</div>
     </div>
 
     <!-- 3D 模式建物 / 玩家資訊卡 -->
@@ -148,7 +148,7 @@
     <!-- 座標顯示與當前維度 -->
     <div class="coord-display" id="coords">
         <span class="dim-display" id="current-dim-text">DIMENSION: OVERWORLD</span>
-        <span>X: 0, Z: 0</span>
+        <span id="coords-xyz">X: 0, Z: 0</span>
     </div>
 
     <!-- 在線玩家選單 -->
@@ -162,6 +162,7 @@
 
     <!-- 腳本引用 -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="js/utils.js"></script>
     <script src="js/config-3d.js"></script>
     <script src="js/login.js"></script>
     <script src="js/teleport.js"></script>

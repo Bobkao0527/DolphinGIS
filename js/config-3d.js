@@ -66,8 +66,13 @@
         // 靜默回退
       }
 
+      // 若本次解析失敗或取得空位址，清除快取的 Promise 以允許後續重試
+      resolvedUrlPromise = null;
       return "";
-    })();
+    })().catch((err) => {
+      resolvedUrlPromise = null;
+      throw err;
+    });
 
     return resolvedUrlPromise;
   }

@@ -1,4 +1,4 @@
-//執行指令：node convert.js
+// 本機離線圖磚轉檔工具：執行指令 `node convert.js`（需先於本機安裝 sharp，無需隨靜態網站部署）
 const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');

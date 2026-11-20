@@ -10,7 +10,11 @@ async function ensureWasm() {
     const buf = await res.arrayBuffer();
     const { instance } = await WebAssembly.instantiate(buf, {});
     return instance.exports;
-  })();
+  })().catch((err) => {
+    // 若載入或實例化失敗則清除快取，讓後續請求得以重試
+    wasmReady = null;
+    throw err;
+  });
   return wasmReady;
 }
 
@@ -47,10 +51,15 @@ self.onmessage = async (e) => {
     }
 
     const bytes = new Uint8Array(rawBuf);
-    const dataPtr = wasm.wasm_alloc(bytes.length);
-    const metaPtr = wasm.wasm_alloc(44); // 11 * u32
+    let dataPtr = 0;
+    let metaPtr = 0;
 
     try {
+      dataPtr = wasm.wasm_alloc(bytes.length);
+      metaPtr = wasm.wasm_alloc(44); // 11 * u32
+      if (!dataPtr || !metaPtr) {
+        throw new Error("WASM 記憶體配置失敗");
+      }
       new Uint8Array(wasm.memory.buffer, dataPtr, bytes.length).set(bytes);
       const rc = wasm.vxq_inspect(dataPtr, bytes.length, metaPtr);
       if (rc !== 0) {
@@ -93,8 +102,8 @@ self.onmessage = async (e) => {
         [solidArr.buffer, transArr.buffer]
       );
     } finally {
-      wasm.wasm_free(dataPtr, bytes.length);
-      wasm.wasm_free(metaPtr, 44);
+      if (dataPtr) wasm.wasm_free(dataPtr, bytes.length);
+      if (metaPtr) wasm.wasm_free(metaPtr, 44);
     }
   } catch (err) {
     self.postMessage({ id, ok: false, error: err.message || String(err) });

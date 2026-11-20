@@ -18,10 +18,7 @@ const DIM_ZH_NAMES = {
 function resolveSafeY(rawY, dim = 'overworld') {
     const value = Number(rawY);
     if (Number.isFinite(value)) return value;
-
-    const lower = String(dim || 'overworld').toLowerCase();
-    if (lower.includes('nether') || lower.includes('end')) return 120;
-    return 120;
+    return window.dolphinUtils ? window.dolphinUtils.getSafeDefaultY(dim) : 120;
 }
 
 function getBuildingDimension(id) {
@@ -39,18 +36,47 @@ function getBuildingDimension(id) {
     }
 }
 
+/**
+ * 標準 RFC 4180 CSV 單行狀態機解析器
+ * 支援雙引號包覆、引號內逗號、雙引號跳脫 ("")、單引號字元與空欄位
+ */
 function parseCSVLine(text) {
-    const re_valid = /^\s*(?:'[^'\\]*(?:\\[\S\s][^'\\]*)*'|"[^"\\]*(?:\\[\S\s][^"\\]*)*"|[^,'"\s\\]*(?:\s+[^,'"\s\\]+)*)\s*(?:,\s*(?:'[^'\\]*(?:\\[\S\s][^'\\]*)*'|"[^"\\]*(?:\\[\S\s][^"\\]*)*"|[^,'"\s\\]*(?:\s+[^,'"\s\\]+)*)\s*)*$/;
-    const re_value = /(?!\s*$)\s*(?:'([^'\\]*(?:\\[\S\s][^'\\]*)*)'|"([^"\\]*(?:\\[\S\s][^"\\]*)*)"|([^,'"\s\\]*(?:\s+[^,'"\s\\]+)*))\s*(?:,|$)/g;
-    if (!re_valid.test(text)) return [];
-    const a = [];
-    text.replace(re_value, (m0, m1, m2, m3) => {
-        if (m1 !== undefined) a.push(m1.replace(/\\'/g, "'"));
-        else if (m2 !== undefined) a.push(m2.replace(/\\"/g, '"'));
-        else if (m3 !== undefined) a.push(m3);
-        return '';
-    });
-    return a;
+    if (typeof text !== 'string') return [];
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    let fieldStarted = false;
+
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+
+        if (inQuotes) {
+            if (ch === '"') {
+                if (i + 1 < text.length && text[i + 1] === '"') {
+                    current += '"';
+                    i++;
+                } else {
+                    inQuotes = false;
+                }
+            } else {
+                current += ch;
+            }
+        } else if (ch === '"' && !fieldStarted && current.trim() === '') {
+            inQuotes = true;
+            current = '';
+            fieldStarted = true;
+        } else if (ch === ',') {
+            result.push(current.trim());
+            current = '';
+            fieldStarted = false;
+        } else {
+            current += ch;
+            if (!/\s/.test(ch)) fieldStarted = true;
+        }
+    }
+
+    result.push(current.trim());
+    return result;
 }
 
 async function fetchBuildingData() {
@@ -80,9 +106,10 @@ async function fetchBuildingData() {
                     y = parseFloat(parts[1]);
                     z = parseFloat(parts[2]);
                 } else if (parts.length === 2) {
-                    // 若只有 X, Z 軸，保留高處安全落點，避免直接窒息
+                    // 若只有 X, Z 軸，依維度決定安全高度落點
+                    const detectedDim = getBuildingDimension(id);
                     x = parseFloat(parts[0]);
-                    y = 120;
+                    y = resolveSafeY(NaN, detectedDim);
                     z = parseFloat(parts[1]);
                 }
             }
@@ -161,8 +188,9 @@ function executeSearch() {
 
     const coordMatch = query.match(/^(-?\d+(\.\d+)?)[, ]+(-?\d+(\.\d+)?)([, ]+(-?\d+(\.\d+)?))?$/);
     if (coordMatch) {
+        const currentDim = window.currentDimension || 'overworld';
         const parsedX = parseFloat(coordMatch[1]);
-        let parsedY = 120;
+        let parsedY = resolveSafeY(NaN, currentDim);
         let parsedZ = parseFloat(coordMatch[3]);
         
         // 若輸入 "X Y Z" 或 "X, Y, Z"
@@ -171,7 +199,7 @@ function executeSearch() {
             parsedZ = parseFloat(coordMatch[6]);
         }
         
-        goToLocation(parsedX, parsedY, parsedZ, "手動定位", "", "座標點", "", window.currentDimension || 'overworld');
+        goToLocation(parsedX, parsedY, parsedZ, "手動定位", "", "座標點", "", currentDim);
         return;
     }
 
@@ -213,19 +241,23 @@ function showResultsList(results) {
     if (!list) return;
     list.innerHTML = '';
     list.style.display = 'block';
+    const escape = window.escapeHtml || ((s) => String(s ?? ''));
     
     results.forEach(res => {
         const item = document.createElement('div');
         item.className = 'result-item';
         const isPlayer = res.type === 'player';
         const labelText = isPlayer ? '在線玩家' : `#${res.id} (${res.dimLabel})`;
+        const safeName = escape(res.displayName || res.name || '未命名建物');
+        const safeLabel = escape(labelText);
+        const safeAddr = escape(res.addr || '無地址資訊');
         
         item.innerHTML = `
             <div class="item-header">
-                <strong>${res.displayName || res.name || '未命名建物'}</strong>
-                <span class="item-id" style="color: ${isPlayer ? 'var(--player-accent)' : 'var(--accent)'}">${labelText}</span>
+                <strong>${safeName}</strong>
+                <span class="item-id" style="color: ${isPlayer ? 'var(--player-accent)' : 'var(--accent)'}">${safeLabel}</span>
             </div>
-            <span class="item-addr">${res.addr || '無地址資訊'}</span>
+            <span class="item-addr">${safeAddr}</span>
         `;
         item.onclick = () => {
             const input = document.getElementById('search-input');
@@ -239,8 +271,16 @@ function showResultsList(results) {
 // 導航跳轉 (帶入 X, Y, Z 三維數據，並支援 2D/3D 模式分流與按鈕聯動)
 window.getBuildingData = () => buildingData;
 window.getBuildingDimension = getBuildingDimension;
+let navSequence = 0;
+let pendingPopupTimer = null;
 
 async function goToLocation(x, y, z, name, addr = "", type = "", id = "", dim = "overworld") {
+    const seq = ++navSequence;
+    if (pendingPopupTimer) {
+        clearTimeout(pendingPopupTimer);
+        pendingPopupTimer = null;
+    }
+
     const list = document.getElementById('results-list');
     if (list) list.style.display = 'none';
 
@@ -269,21 +309,35 @@ async function goToLocation(x, y, z, name, addr = "", type = "", id = "", dim = 
         console.warn('[DolphinGIS] preload failed', e);
     }
 
+    if (seq !== navSequence) return;
+
     map.flyTo(targetLatLng, desiredZoom, { animate: true, duration: 1.2 });
 
-    setTimeout(() => {
+    const escape = window.escapeHtml || ((s) => String(s ?? ''));
+    const safeDimDisplay = escape(dimDisplay);
+    const safeType = escape(type || '建物');
+    const safeId = escape(id);
+    const safeName = escape(name || '定位點');
+    const safeAddr = escape(addr);
+    const safeDim = escape(dim);
+
+    pendingPopupTimer = setTimeout(() => {
+        pendingPopupTimer = null;
+        if (seq !== navSequence) return;
+        if (window.dolphin3D && typeof window.dolphin3D.isActive === 'function' && window.dolphin3D.isActive()) return;
+
         const content = `
             <div style="min-width: 140px;">
                 <div style="font-size: 10px; color: #55ff55; margin-bottom: 2px;">
-                    [${dimDisplay}] ${type || '建物'} ${id ? '#' + id : ''}
+                    [${safeDimDisplay}] ${safeType} ${safeId ? '#' + safeId : ''}
                 </div>
-                <b style="font-size: 14px; color: #55ff55;">${name || '定位點'}</b>
-                <div style="font-size: 12px; margin: 5px 0; opacity: 0.8;">${addr}</div>
+                <b style="font-size: 14px; color: #55ff55;">${safeName}</b>
+                <div style="font-size: 12px; margin: 5px 0; opacity: 0.8;">${safeAddr}</div>
                 <div style="font-family: monospace; font-size: 11px; border-top: 1px solid #444; padding-top: 5px; margin-top: 5px; margin-bottom: 8px;">
                     X: ${Math.round(x)}, Y: ${Math.round(y)}, Z: ${Math.round(z)}
                 </div>
-                <button class="teleport-btn" data-x="${x}" data-y="${y}" data-z="${z}" data-dim="${dim}" disabled>載入驗證中...</button>
-                <button class="enter-3d-btn" data-x="${x}" data-y="${y}" data-z="${z}" data-dim="${dim}" data-name="${(name || '定位點').replace(/"/g, '&quot;')}">🧊 3D 檢視</button>
+                <button class="teleport-btn" data-x="${x}" data-y="${y}" data-z="${z}" data-dim="${safeDim}" disabled>載入驗證中...</button>
+                <button class="enter-3d-btn" data-x="${x}" data-y="${y}" data-z="${z}" data-dim="${safeDim}" data-name="${safeName}">🧊 3D 檢視</button>
             </div>
         `;
         L.popup().setLatLng(targetLatLng).setContent(content).openOn(map);

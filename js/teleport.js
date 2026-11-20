@@ -28,6 +28,13 @@ const teleportSystem = {
             return;
         }
 
+        if (btn.id === 'popup3d-tp-btn' && (!Number.isFinite(x) || !Number.isFinite(z))) {
+            btn.disabled = true;
+            btn.innerText = "⚡️ 傳送";
+            btn.onclick = null;
+            return;
+        }
+
         btn.disabled = false;
         btn.innerText = "⚡️ 傳送";
         btn.onclick = (event) => {
@@ -42,27 +49,10 @@ const teleportSystem = {
         buttons.forEach((btn) => this.syncButtonState(btn));
     },
 
-    /**
-     * 依據維度名稱返回正確的 Minecraft 命名空間 ID
-     * - 原生維度 (overworld, nether, end) 使用 minecraft: 前綴
-     * - 其他自定義維度 (giant, mini, space, survival 等) 使用 custom: 前綴
-     */
-    getMinecraftDimensionID(dim) {
-        const lower = (dim || 'overworld').toLowerCase().trim();
-        
-        // 原生維度對應
-        if (lower === 'the_nether' || lower === 'nether') return 'minecraft:the_nether';
-        if (lower === 'the_end' || lower === 'end') return 'minecraft:the_end';
-        if (lower === 'overworld') return 'minecraft:overworld';
-        
-        // 其他自訂維度一律使用 custom: 命名空間
-        return `custom:${lower}`;
-    },
-
     getSafeTeleportY(y, dim = 'overworld') {
         const parsed = Number(y);
         if (Number.isFinite(parsed)) return Math.round(parsed);
-        return 120;
+        return window.dolphinUtils ? window.dolphinUtils.getSafeDefaultY(dim) : 120;
     },
 
     /**
@@ -156,6 +146,7 @@ const teleportSystem = {
                 this.syncButtonState(btn);
             }
         });
+        document.dispatchEvent(new CustomEvent('teleport-loading-change', { detail: { loading } }));
     },
 
     showNotification(message, type = "info") {
@@ -170,10 +161,19 @@ const teleportSystem = {
         if (type === "success") title = "✅ 傳送執行成功";
         if (type === "info") title = "📡 遠端指令呼叫";
 
-        notif.innerHTML = `
-            <div style="font-weight: bold; font-size: 13px;">${title}</div>
-            <div style="font-size: 11px; opacity: 0.9; margin-top: 3px;">${message}</div>
-        `;
+        const titleEl = document.createElement('div');
+        titleEl.style.fontWeight = 'bold';
+        titleEl.style.fontSize = '13px';
+        titleEl.textContent = title;
+
+        const msgEl = document.createElement('div');
+        msgEl.style.fontSize = '11px';
+        msgEl.style.opacity = '0.9';
+        msgEl.style.marginTop = '3px';
+        msgEl.textContent = String(message ?? '');
+
+        notif.appendChild(titleEl);
+        notif.appendChild(msgEl);
 
         document.body.appendChild(notif);
 

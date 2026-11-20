@@ -91,8 +91,11 @@ function initMap() {
 
     mapContainer.addEventListener('wheel', (event) => {
         const isPinch = event.ctrlKey || event.metaKey;
-        const isTrackpad = event.deltaMode === 0 &&
-            (event.deltaX !== 0 || Math.abs(event.deltaY) < 80);
+        const isLikelyMouseWheel = event.deltaX === 0 && (
+            (typeof event.wheelDeltaY === 'number' && event.wheelDeltaY !== 0 && event.wheelDeltaY % 120 === 0) ||
+            Math.abs(event.deltaY) >= 80
+        );
+        const isTrackpad = event.deltaMode === 0 && !isLikelyMouseWheel;
 
         if (!isTrackpad || isPinch) return;
 
@@ -171,12 +174,16 @@ function initMap() {
             candidates.sort((left, right) => left.distance - right.distance);
             const urls = [...new Map(candidates.map(candidate => [candidate.url, candidate])).values()]
                 .slice(0, MAX_PRELOAD_TILES);
+            if (urls.length === 0) return resolve();
+
             let nextIndex = 0;
             let active = 0;
-            let settled = false;
+            let resolved = false;
+            let aborted = false;
             let centerFinished = false;
             const activeImages = new Set();
             const centerUrl = urls[0] && urls[0].url;
+
             const cancelImages = () => {
                 activeImages.forEach((image) => {
                     image.onload = null;
@@ -185,23 +192,34 @@ function initMap() {
                 });
                 activeImages.clear();
             };
-            const finish = () => {
-                if (settled) return;
-                settled = true;
-                clearTimeout(timeoutId);
-                cancelImages();
-                if (cancelActivePreload === cancelImages) cancelActivePreload = () => {};
-                resolve();
-            };
-            const timeoutId = setTimeout(finish, timeout);
-            cancelActivePreload = () => {
-                if (!settled) finish();
+
+            const cleanupRef = () => {
+                if (cancelActivePreload === cancelThis) cancelActivePreload = () => {};
             };
 
+            const resolveOnce = () => {
+                if (resolved) return;
+                resolved = true;
+                clearTimeout(timeoutId);
+                resolve();
+            };
+
+            const abortPreload = () => {
+                if (aborted) return;
+                aborted = true;
+                clearTimeout(timeoutId);
+                cancelImages();
+                cleanupRef();
+                resolveOnce();
+            };
+
+            const cancelThis = () => abortPreload();
+            const timeoutId = setTimeout(abortPreload, timeout);
+            cancelActivePreload = cancelThis;
+
             const pump = () => {
-                if (settled || generation !== preloadGeneration) {
-                    clearTimeout(timeoutId);
-                    finish();
+                if (aborted || generation !== preloadGeneration) {
+                    abortPreload();
                     return;
                 }
                 while (active < PRELOAD_CONCURRENCY && nextIndex < urls.length) {
@@ -218,16 +236,21 @@ function initMap() {
                     image.decoding = 'async';
                     image.fetchPriority = url === centerUrl ? 'high' : 'low';
                     const complete = () => {
+                        if (aborted) return;
                         active--;
                         activeImages.delete(image);
                         preloadEntries.delete(url);
                         preloadEntries.set(url, { expiresAt: Date.now() + 2000 });
                         trimPreloadCache();
+
                         if (url === centerUrl) {
                             centerFinished = true;
-                            finish();
-                        } else if (nextIndex >= urls.length && active === 0) {
-                            finish();
+                            resolveOnce();
+                        }
+
+                        if (nextIndex >= urls.length && active === 0) {
+                            cleanupRef();
+                            resolveOnce();
                         } else {
                             pump();
                         }
@@ -239,7 +262,12 @@ function initMap() {
                     image.onerror = complete;
                     image.src = url;
                 }
-                if (centerFinished || (nextIndex >= urls.length && active === 0)) finish();
+
+                if (centerFinished) resolveOnce();
+                if (nextIndex >= urls.length && active === 0) {
+                    cleanupRef();
+                    resolveOnce();
+                }
             };
 
             pump();
@@ -248,28 +276,33 @@ function initMap() {
 
     map.on('mousemove', function(e) {
         const mcX = Math.round(e.latlng.lng);
-        const mcZ = Math.round(-e.latlng.lat); 
-        const coordEl = document.getElementById('coords');
-        if (coordEl) {
-            coordEl.innerHTML = `
-                <span class="dim-display" id="current-dim-text">DIMENSION: ${window.currentDimension.toUpperCase()}</span>
-                <span>X: ${mcX}, Z: ${mcZ}</span>
-            `;
+        const mcZ = Math.round(-e.latlng.lat);
+        const dimTextEl = document.getElementById('current-dim-text');
+        const coordsXyzEl = document.getElementById('coords-xyz');
+        const dimLabel = `DIMENSION: ${window.currentDimension.toUpperCase()}`;
+        const xyzLabel = `X: ${mcX}, Z: ${mcZ}`;
+        if (dimTextEl && dimTextEl.textContent !== dimLabel) {
+            dimTextEl.textContent = dimLabel;
+        }
+        if (coordsXyzEl && coordsXyzEl.textContent !== xyzLabel) {
+            coordsXyzEl.textContent = xyzLabel;
         }
     });
 
-    // 點擊地圖產生標記：保留高空落點，避免直接窒息
+    // 點擊地圖產生標記：依維度選擇安全落點高度，避免窒息或逼近地獄基岩頂
     map.on('click', function(e) {
         const x = Math.round(e.latlng.lng);
-        const y = 120;
+        const y = window.dolphinUtils ? window.dolphinUtils.getSafeDefaultY(window.currentDimension) : 120;
         const z = Math.round(-e.latlng.lat);
+        const escape = window.escapeHtml || ((s) => String(s ?? ''));
+        const safeDim = escape(window.currentDimension);
         const content = `
             <div style="min-width: 140px;">
                 <b style="color: #55ff55;">地圖標記</b>
-                <div style="font-size: 11px; color: var(--player-accent); margin-top: 2px;">維度: ${window.currentDimension}</div>
+                <div style="font-size: 11px; color: var(--player-accent); margin-top: 2px;">維度: ${safeDim}</div>
                 <div style="font-family: monospace; font-size: 12px; margin-top: 5px; border-top: 1px solid #444; padding-top: 3px; margin-bottom: 5px;">X: ${x}<br>Y: ${y}<br>Z: ${z}</div>
-                <button class="teleport-btn" data-x="${x}" data-y="${y}" data-z="${z}" data-dim="${window.currentDimension}" disabled>載入驗證中...</button>
-                <button class="enter-3d-btn" data-x="${x}" data-y="${y}" data-z="${z}" data-dim="${window.currentDimension}" data-name="地圖標記">🧊 3D 檢視</button>
+                <button class="teleport-btn" data-x="${x}" data-y="${y}" data-z="${z}" data-dim="${safeDim}" disabled>載入驗證中...</button>
+                <button class="enter-3d-btn" data-x="${x}" data-y="${y}" data-z="${z}" data-dim="${safeDim}" data-name="地圖標記">🧊 3D 檢視</button>
             </div>
         `;
         L.popup().setLatLng(e.latlng).setContent(content).openOn(map);

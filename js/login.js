@@ -1,6 +1,6 @@
 /**
  * DolphinGIS - Minecraft 統一登入 (SSO) 系統
- * 負責金鑰截取、localStorage 快取、SSO Gateway 整合與 UI 狀態同步
+ * 負責與 SSO Gateway 透過 HttpOnly Cookie 驗證 Session 並同步 UI 狀態
  */
 const SSO_PORTAL = "https://sso.greendolphin.dpdns.org/index.html";
 const VERIFY_API = "https://sso.greendolphin.dpdns.org/api/verify";
@@ -8,7 +8,6 @@ const LOGOUT_API = "https://sso.greendolphin.dpdns.org/api/logout";
 
 const authSystem = {
     currentUser: null,
-    authToken: null,
 
     init() {
         console.log("[DolphinGIS] Auth: Initializing SSO integration...");

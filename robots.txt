@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /3DTest/
+
+Sitemap: https://gis.greendolphin.dpdns.org/sitemap.xml
